@@ -10,7 +10,7 @@ using namespace std;
 class Becke_grid {
     public:
         Becke_grid(map<string, int> &par);
-        //test_angular();
+        //test_grid();
 
     private:
         void build_radial();
@@ -18,8 +18,11 @@ class Becke_grid {
 
     public:
         vector< array<double, 3> > xyz_ang;
+        vector< array<double, 2> > thetaphi_ang;
         vector< double > r, gridw_r, gridw_a;
         size_t nrad, nang;
+        size_t L_max;
+        double r_at;
 
     private:
         // Atomic radii
@@ -31,7 +34,7 @@ class Becke_grid {
 class Laplacian {
     public: 
         Laplacian(map<string, int> &par);
-        void apply(double *f, double *lapl_f); // will be changed later
+        void apply(const double *f, double *lapl_f); // will be changed later
 
     private:
         Becke_grid g;

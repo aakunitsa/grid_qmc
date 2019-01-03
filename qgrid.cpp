@@ -4,24 +4,26 @@
 #include <numeric>
 #include <gsl/gsl_math.h>
 
-using namespace std;
 
-Becke_grid::Becke_grid(map<string, int> &p) : nrad(p["nrad"]), nang(p["nang"]) {
+Becke_grid::Becke_grid(std::map<string, int> &p) : nrad(p["nrad"]), nang(p["nang"]) {
 
     assert (nrad > 0 && nang > 0);
     r.resize(nrad);
     gridw_r.resize(nrad);
     gridw_a.resize(nang);
     xyz_ang.resize(nang);
+    thetaphi_ang.resize(nang);
 
+    printf("Building radial grid...\n");
     build_radial();
+    printf("Building angular grid...\n");
     build_angular();
 
 }
 
 void Becke_grid::build_radial() {
 
-    double r_at = r_m[1]; // always He for now...
+    r_at = r_m[1]; // always He for now...
     vector<int> idx (nrad);
     iota(idx.begin(), idx.end(), 1);
     for (size_t i = 0; i < nrad; i++) {
@@ -39,11 +41,16 @@ void Becke_grid::build_angular() {
     for (int j = 1; j <= max_id; j++) {
         if (available_table(j) > 0 && order_table(j) == nang) {
             double *x = new double [nang], *y = new double [nang], *z = new double [nang];
+            double th, p;
             ld_by_order(nang, x, y, z, gridw_a.data());
+            L_max = size_t(precision_table(j)/2);
             for (size_t i = 0; i < nang; i++) {
                 xyz_ang[i][0] = x[i];
                 xyz_ang[i][1] = y[i];
                 xyz_ang[i][2] = z[i];
+                xyz_to_tp_rad(x[i], y[i], z[i], &p, &th); // Note the order of p and theta; they are swapped.
+                thetaphi_ang[i][0] = th;
+                thetaphi_ang[i][1] = p;
             }
             delete [] x;
             delete [] y;
