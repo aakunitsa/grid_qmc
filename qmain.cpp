@@ -6,12 +6,14 @@
 #include "qparams_reader.h"
 #include "qmethods.h"
 #include "qsystem.h"
+#include "qgrid.h"
 
 
 int main(int argc, char **argv) {
 
     Params_reader q(argc, argv);
     q.perform();
+    /*
     if (q.params["mult"] == 1) {
         auto He = Atom<2, 1>(q);
         VMC vmc_he(He, q.params);
@@ -23,6 +25,11 @@ int main(int argc, char **argv) {
         vmc_he.run();
         //vmc_he.run_test();
     }
+    */
+    Becke_grid g(q.params);
+    g.test_grid();
+    Laplacian l(q.params);
+    l.test_laplacian();
 /*
     if (q.params["rng"] == 32) {
         std::uniform_int_distribution<int> u6(1,6);

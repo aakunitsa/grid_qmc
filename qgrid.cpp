@@ -1,8 +1,11 @@
 #include "qgrid.h"
+#include "qorbitals.h"
 #include "lebedev_grid/sphere_lebedev_rule.hpp"
 #include <assert.h>
 #include <numeric>
+#include <iostream>
 #include <gsl/gsl_math.h>
+#include <gsl/gsl_cblas.h>
 
 
 Becke_grid::Becke_grid(std::map<string, int> &p) : nrad(p["nrad"]), nang(p["nang"]) {
@@ -14,10 +17,12 @@ Becke_grid::Becke_grid(std::map<string, int> &p) : nrad(p["nrad"]), nang(p["nang
     xyz_ang.resize(nang);
     thetaphi_ang.resize(nang);
 
-    printf("Building radial grid...\n");
+    printf("Building radial grid... ");
     build_radial();
-    printf("Building angular grid...\n");
+    printf("Done.\n");
+    printf("Building angular grid... ");
     build_angular();
+    printf("Done.\n");
 
 }
 
@@ -65,6 +70,55 @@ void Becke_grid::build_angular() {
     }
 }
 
+void Becke_grid::test_grid() { 
+    // I order to test my implementatio of
+    // the grid I will perform the dot products of 
+    // sperical harmonics with the angular momenta up to
+    // L_max
+
+    double tol = 1e-14;
+    std::cout << "Testing the angular grid... " << std::endl;
+    std::cout << "The tolerance is set to " << tol << " by default " << std::endl;
+
+    ShellSet t(L_max);
+
+    for (auto &o1 : t.aorb ) {
+        for (auto &o2 : t.aorb ) {
+            // Perform a scalar product
+            double d_re = 0.0, d_im = 0.0;
+            for (size_t i = 0; i < nang; i++) {
+                auto [th, p] = thetaphi_ang[i];
+                auto [y1_re, y1_im] = Y(o1.L, o1.M, th, p);
+                auto [y2_re, y2_im] = Y(o2.L, o2.M, th, p);
+                d_re += 4. * M_PI * gridw_a[i] * (y1_re * y2_re + y1_im * y2_im);
+                d_im += 4. * M_PI * gridw_a[i] * (y1_re * y2_im - y1_im * y2_re);
+            }
+            if (o1 == o2) {
+                assert ( abs(d_re - 1.0) < tol );
+            } else {
+                assert ( abs(d_re) < tol );
+            }
+            assert (abs(d_im) < tol);
+        }
+    }
+
+    std::cout << "The angular grid passed all the tests!" << std::endl;
+    /*
+    std::cout << "Testing radial grid..." << std::endl;
+    size_t nstate = 10;
+    std::cout << "Calculating the energies and norms of the first " << nstate 
+              << " states of hydrogen atom via numerical integration " << std::endl;
+
+    for (size_t i = 0; i < nstate; i++) {
+        double norm = 0.0;
+        for (size_t j = 0; j < nrad; j++) 
+            norm += R(1.0, i + 1, i, r[j]) * gridw_r[j];
+        printf("Norm ( %d ) = %13.6f \n", i + 1, norm);
+    }
+    */
+
+}
+
 Laplacian::Laplacian(map<string, int> &p) : g(p) {
     d1.resize(g.nrad);
     d2.resize(g.nrad);
@@ -109,3 +163,58 @@ void Laplacian::apply(const double *f, double *lapl_f) {
     }
 
 }
+
+void Laplacian::test_laplacian() {
+    // Calculate the energies of the first
+    // three states of hydrogen atom
+
+    std::cout << "Testing the Laplcaian class" << std::endl; 
+    std::cout << "The energies of the first three states of hydorgen will be calculated " << std::endl;
+    std::cout << "and compared with exact (non-relativistic) results " << std::endl;
+
+
+    std::vector<double> lapl_psi(g.nrad, 0.0);
+    std::vector<double> psi(g.nrad, 0.0);
+    double e_kin, e_pot;
+
+    // 1s state goes here!
+    e_kin = 0.0;
+    e_pot = 0.0;
+    std::transform ( g.r.begin(), g.r.end(), psi.begin(), psi_1s_H);
+    apply(psi.data(), lapl_psi.data());
+    for (size_t i = 0; i < g.nrad; i++) {
+        e_kin += -0.5 * psi[i] * lapl_psi[i] * g.gridw_r[i];
+        e_pot += -1.0 * 1./g.r[i] * psi[i] * psi[i] * g.gridw_r[i];
+    }
+    printf("E(1S) = %16.10f (%16.10f) \n", e_kin + e_pot, -0.5 * gsl_pow_int(1., -2));
+
+    // 2s state goes here!
+    e_kin = 0.0;
+    e_pot = 0.0;
+    std::transform ( g.r.begin(), g.r.end(), psi.begin(), psi_2s_H);
+    apply(psi.data(), lapl_psi.data());
+    for (size_t i = 0; i < g.nrad; i++) {
+        e_kin += -0.5 * psi[i] * lapl_psi[i] * g.gridw_r[i];
+        e_pot += -1.0 * 1./g.r[i] * psi[i] * psi[i] * g.gridw_r[i];
+    }
+    printf("E(2S) = %16.10f (%16.10f) \n", e_kin + e_pot, -0.5 * gsl_pow_int(2., -2));
+
+    // 3s state goes here!
+    e_kin = 0.0;
+    e_pot = 0.0;
+    std::transform ( g.r.begin(), g.r.end(), psi.begin(), psi_3s_H);
+    apply(psi.data(), lapl_psi.data());
+    for (size_t i = 0; i < g.nrad; i++) {
+        e_kin += -0.5 * psi[i] * lapl_psi[i] * g.gridw_r[i];
+        e_pot += -1.0 * 1./g.r[i] * psi[i] * psi[i] * g.gridw_r[i];
+    }
+    printf("E(3S) = %16.10f (%16.10f) \n", e_kin + e_pot, -0.5 * gsl_pow_int(3., -2));
+
+
+}
+
+
+
+
+
+

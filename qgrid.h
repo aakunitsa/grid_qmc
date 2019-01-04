@@ -10,7 +10,7 @@ using namespace std;
 class Becke_grid {
     public:
         Becke_grid(map<string, int> &par);
-        //test_grid();
+        void test_grid();
 
     private:
         void build_radial();
@@ -35,6 +35,7 @@ class Laplacian {
     public: 
         Laplacian(map<string, int> &par);
         void apply(const double *f, double *lapl_f); // will be changed later
+        void test_laplacian();
 
     private:
         Becke_grid g;

@@ -1,7 +1,7 @@
 MF = Makefile
 CC = g++
 #CFLAGS = -march=native -ffast-math -O3 -std=c++14 -I$(HOME)/local/include -DMT64 
-CFLAGS = -ffast-math -O3 -std=c++14 -I$(HOME)/local/include -DMT64 
+CFLAGS = -ffast-math -O3 -std=c++17 -I$(HOME)/local/include -DMT64 
 #CFLAGS = -O0 -std=c++14 -I$(HOME)/local/include -DMT64 
 #LFLAGS = -L$(HOME)/local/lib -lopenblas -lpthread -lgfortran
 #LFLAGS = $(HOME)/local/lib/libopenblas.a 
