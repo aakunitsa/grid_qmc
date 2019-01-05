@@ -5,7 +5,7 @@ CFLAGS = -ffast-math -O3 -std=c++17 -I$(HOME)/local/include -DMT64
 #CFLAGS = -O0 -std=c++14 -I$(HOME)/local/include -DMT64 
 #LFLAGS = -L$(HOME)/local/lib -lopenblas -lpthread -lgfortran
 #LFLAGS = $(HOME)/local/lib/libopenblas.a 
-LFLAGS =  $(HOME)/local/lib/libgslcblas.a $(HOME)/local/lib/libgsl.a
+LFLAGS = -v  $(HOME)/local/lib/libgslcblas.a $(HOME)/local/lib/libgsl.a -larmadillo -L$(HOME)/local/lib
 
 EXE = vmc.x
 

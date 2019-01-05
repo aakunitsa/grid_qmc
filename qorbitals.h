@@ -1,4 +1,4 @@
-#ifndef QORB_H 
+#ifndef QORB_H
 #define QORB_H
 #include <tuple>
 #include <vector>
@@ -53,15 +53,15 @@ inline double R(int Z, int n, int l, double r) {
 }
 */
 
-double psi_1s_H(double &r) {
+inline double psi_1s_H(double &r) {
     return 2. * exp(-1.0 * r);
 }
 
-double psi_2s_H(double &r) {
+inline double psi_2s_H(double &r) {
     return sqrt(2.0)/4. * (2. - r) * exp(-0.5 * r);
 }
 
-double psi_3s_H(double &r) {
+inline double psi_3s_H(double &r) {
     return  2. * sqrt(3.0)/27. * (3. - 2. * r + 2./9. * gsl_pow_int(r, 2)) * exp(-r/3.);
 }
 
