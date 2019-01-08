@@ -38,7 +38,7 @@ inline std::tuple<double, double> Y(int L, int M, double th, double p) {
         printf("Error when calculating Y_%d%d is %16.10E \n", L, M, Leg.err);
     }
     assert (Leg.err <= 1e-10);
-    return make_tuple(phase * Leg.val * cos(M * p), phase * Leg.val * sin(M * p));
+    return std::make_tuple(phase * Leg.val * cos(M * p), phase * Leg.val * sin(M * p));
 }
 
 

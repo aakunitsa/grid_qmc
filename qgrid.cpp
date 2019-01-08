@@ -6,6 +6,7 @@
 #include <iostream>
 #include <gsl/gsl_math.h>
 #include <gsl/gsl_cblas.h>
+#include <gsl/gsl_sf_coupling.h>
 
 
 Becke_grid::Becke_grid(std::map<string, int> &p) : nrad(p["nrad"]), nang(p["nang"]) {
@@ -48,7 +49,7 @@ void Becke_grid::build_angular() {
             double *x = new double [nang], *y = new double [nang], *z = new double [nang];
             double th, p;
             ld_by_order(nang, x, y, z, gridw_a.data());
-            L_max = size_t(precision_table(j)/2);
+            L_max = size_t(precision_table(j)/2.);
             for (size_t i = 0; i < nang; i++) {
                 xyz_ang[i][0] = x[i];
                 xyz_ang[i][1] = y[i];
@@ -213,8 +214,186 @@ void Laplacian::test_laplacian() {
 
 }
 
+Coulomb::Coulomb(std::map<string, int> &p) : g(p), ss(g.L_max) {
+
+    size_t num_orb = ss.size(), num_pair = num_orb * (num_orb + 1) / 2, 
+           num_eri = num_pair * (num_pair + 1) / 2;
+    couplings.resize(num_eri);
+    size_t eri_counter = 0, pair_counter = 0;
+
+    // Couplings are assumed to be given in chemists 
+    // notation as follows (ij|kl), i.e. ij refer to 
+    // the first particle, whereas kl correspond to the second
+
+    for (size_t i = 0; i < ss.size(); i++) {
+        for (size_t j = i; j < ss.size(); j++) {
+            assert ( pair_counter == (num_orb - 1) * i + j - i * (i - 1) / 2 );
+            pair_counter++;
+            for (size_t k = 0; k < i + 1; k++) {
+                for (size_t l = k; l < (k == i ? j + 1 : ss.size()); l++) {
+                    couplings[eri_counter] = eval_coupling(ss.aorb[i], ss.aorb[j], ss.aorb[k], ss.aorb[l]);
+                    eri_counter++;
+                }
+            }
+        }
+    }
+
+    printf("Maximum angular momentum for the grid is %zu \n", g.L_max);
+    printf("Number of angular orbitals is %zu \n", num_orb);
+    printf("Number of orbital pairs is %zu \n", num_pair);
+    printf("Number of non-equivalent couplings is %zu \n", num_eri);
+
+    std::cout << "pair_counter at the end of big loop " << pair_counter << std::endl;
+    std::cout << "eri_counter at the end of big loop " << eri_counter << std::endl;
+
+    assert(pair_counter == num_pair);
+    assert(eri_counter == num_eri);
+}
+/*
+std::vector<double> Coulomb::eval_coupling(LM &lm1, LM &lm2, LM &lm3, LM &lm4) {
+    std::vector<double> v(2);
+    std::fill(v.begin(), v.end(), 0.0);
+
+    return v;
+}
+*/
+
+std::vector<double> Coulomb::eval_coupling(LM &lm1, LM &lm2, LM &lm3, LM &lm4) {
+
+    int &L1 = lm1.L, &L2 = lm2.L, &L3 = lm3.L, &L4 = lm4.L,
+        &M1 = lm1.M, &M2 = lm2.M, &M3 = lm3.M, &M4 = lm4.M; 
+
+    size_t L_min = std::max(abs(L1 - L2), abs(L3 - L4)),
+           L_max = std::min(L1 + L2, L3 + L4);
+
+    if ( (M1 - M2 != M4 - M3) || (L_min > L_max) ) {
+        return std::vector<double>(1, 0.0);
+    } else { 
+        std::vector<double> coulomb_couplings(L_max + 1, 0.0); // Might be suboptimal, especially if L_min >> 0
+        double c = gsl_pow_int(-1.0, M2 - M3) * sqrt( (2*L1 + 1) * (2*L2 + 1) * (2*L3 + 1) * (2*L4 + 1));
+        for (size_t l = L_min; l < L_max + 1; l++) {
+            gsl_sf_result w3j_sym;
+            double w3j_val = c, tol = 1e-10;
+            bool accurate = true;
+
+            int status = gsl_sf_coupling_3j_e(2*L1, 2*L2, 2*l, 0, 0, 0, &w3j_sym);
+            accurate = accurate && (abs(w3j_sym.err) < tol);
+            w3j_val *= w3j_sym.val;
+
+            status = gsl_sf_coupling_3j_e(2*L3, 2*L4, 2*l, 0, 0, 0, &w3j_sym);
+            accurate = accurate && (abs(w3j_sym.err) < tol);
+            w3j_val *= w3j_sym.val;
+
+            status = gsl_sf_coupling_3j_e(2*L1, 2*L2, 2*l, -2*M1, 2*M2, 2*(M1 - M2), &w3j_sym);
+            accurate = accurate && (abs(w3j_sym.err) < tol);
+            w3j_val *= w3j_sym.val;
+
+            status = gsl_sf_coupling_3j_e(2*L3, 2*L4, 2*l, -2*M3, 2*M4, 2*(M2 - M1), &w3j_sym);
+            accurate = accurate && (abs(w3j_sym.err) < tol);
+            w3j_val *= w3j_sym.val;
+
+            assert(accurate);
+
+            coulomb_couplings[l] = w3j_val;
+        }
+
+        return coulomb_couplings;
+    }
+
+}
 
 
+double Coulomb::eval_simple(double &r1, double &r2, LM &lm1, LM &lm2, LM &lm3, LM &lm4) {
+
+    double r_min = std::min(r1, r2), r_max = std::max(r1, r2), f = r_min/r_max;
+    auto c = eval_coupling(lm1, lm2, lm3, lm4);
+    std::vector<double> tmp(c.size());
+    std::iota(tmp.begin(), tmp.end(), 0.0);
+    std::transform(tmp.begin(), tmp.end(), tmp.begin(), [&](double &l) { return gsl_pow_int(f, size_t(l)) / r_max ; });
+
+    return cblas_ddot(c.size(), c.data(), 1, tmp.data(), 1);
+
+}
+
+double Coulomb::eval_simple_wo_selection(double &r1, double &r2, LM &lm1, LM &lm2, LM &lm3, LM &lm4) {
+
+    // Note: this function is unfinished!!!
+
+    double r_min = std::min(r1, r2), r_max = std::max(r1, r2), f = r_min/r_max;
+    size_t L_max = std::max(lm1.L + lm2.L, lm3.L + lm4.L);
+    int &L1 = lm1.L, &L2 = lm2.L, &L3 = lm3.L, &L4 = lm4.L,
+        &M1 = lm1.M, &M2 = lm2.M, &M3 = lm3.M, &M4 = lm4.M; 
+
+    std::vector<double> c(L_max + 1);
+    std::iota(c.begin(), c.end(), 0.0);
 
 
+    for (int l = 0; l < L_max + 1; l++) {
+        double c_tmp = sqrt( (2*L1 + 1) * (2*L2 + 1) * (2*L3 + 1) * (2*L4 + 1));
+        for (int m = -l; m < l + 1; l++) {
+
+            gsl_sf_result w3j_sym;
+            double w3j_val = 1.0, tol = 1e-10;
+            bool accurate = true;
+
+            int status = gsl_sf_coupling_3j_e(2*L1, 2*L2, 2*l, 0, 0, 0, &w3j_sym);
+            accurate = accurate && (abs(w3j_sym.err) < tol);
+            w3j_val *= w3j_sym.val;
+
+            status = gsl_sf_coupling_3j_e(2*L3, 2*L4, 2*l, 0, 0, 0, &w3j_sym);
+            accurate = accurate && (abs(w3j_sym.err) < tol);
+            w3j_val *= w3j_sym.val;
+
+            status = gsl_sf_coupling_3j_e(2*L1, 2*L2, 2*l, -2*M1, 2*M2, 2*m, &w3j_sym);
+            accurate = accurate && (abs(w3j_sym.err) < tol);
+            w3j_val *= w3j_sym.val;
+
+            status = gsl_sf_coupling_3j_e(2*L3, 2*L4, 2*l, -2*M3, 2*M4, -2*m, &w3j_sym);
+            accurate = accurate && (abs(w3j_sym.err) < tol);
+            w3j_val *= w3j_sym.val;
+
+            assert(accurate);
+
+            // Add properly scaled result to the c_tmp
+
+        }
+        // Update couplings here!
+    }
+
+    std::vector<double> tmp(c.size());
+    std::iota(tmp.begin(), tmp.end(), 0.0);
+    std::transform(tmp.begin(), tmp.end(), tmp.begin(), [&](double &l) { return gsl_pow_int(f, size_t(l)) / r_max ; });
+
+    return cblas_ddot(c.size(), c.data(), 1, tmp.data(), 1);
+
+}
+
+double Coulomb::eval(double &r1, double &r2, LM &lm1, LM &lm2, LM &lm3, LM &lm4) {
+
+    LM &p1lm1 = (ss.orb_id(lm1) <= ss.orb_id(lm2)) ? lm1 : lm2,
+       &p1lm2 = (ss.orb_id(lm1) <= ss.orb_id(lm2)) ? lm2 : lm1,
+       &p2lm1 = (ss.orb_id(lm3) <= ss.orb_id(lm4)) ? lm3 : lm4,
+       &p2lm2 = (ss.orb_id(lm3) <= ss.orb_id(lm4)) ? lm4 : lm3;
+
+    double r_min = std::min(r1, r2), r_max = std::max(r1, r2), f = r_min/r_max;
+    auto c = couplings[coupling_id(ss.orb_id(p1lm1), ss.orb_id(p1lm2), ss.orb_id(p2lm1), ss.orb_id(p2lm2))];
+    std::vector<double> tmp(c.size());
+    std::iota(tmp.begin(), tmp.end(), 0.0);
+    std::transform(tmp.begin(), tmp.end(), tmp.begin(), [&](double &l) { return gsl_pow_int(f, size_t(l)) / r_max ; });
+
+    return cblas_ddot(c.size(), c.data(), 1, tmp.data(), 1);
+
+}
+
+size_t Coulomb::coupling_id ( size_t o1, size_t o2, size_t o3, size_t o4) {
+
+    assert ( o1 <= o2 && o3 <= o4 );
+
+    size_t num_orb = ss.size();
+    size_t pid1 = num_orb * o1 + o2 - o1 * (o1 - 1) / 2;
+    size_t pid2 = num_orb * o3 + o4 - o3 * (o3 - 1) / 2;
+
+    return 0;
+
+}
 
