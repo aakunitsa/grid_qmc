@@ -31,6 +31,7 @@ int main(int argc, char **argv) {
     Laplacian l(q.params);
     l.test_laplacian();
     Coulomb R12(q.params);
+    R12.test_coulomb();
 /*
     if (q.params["rng"] == 32) {
         std::uniform_int_distribution<int> u6(1,6);
