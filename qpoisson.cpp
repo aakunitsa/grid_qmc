@@ -8,7 +8,7 @@ Poisson_solver::Poisson_solver(std::map<string, int> &p) : g(p), ss(g.L_max) {
     // Auxiliary arrays
     
     // Set up a stencil for a given grid
-    poi_lhs.resize(g.nrad * g.nang); // Stencil matrix
+    poi_lhs.resize(g.nrad * g.nrad); // Stencil matrix
     /*
     std::fill(poi_lhs.begin(), poi_lhs.end(), 0.0);
     for (size_t i = 0; i < g.nang; i++) {
@@ -17,7 +17,7 @@ Poisson_solver::Poisson_solver(std::map<string, int> &p) : g(p), ss(g.L_max) {
     }
     */
 
-    poi_rhs.resize(g.nang);
+    poi_rhs.resize(g.nrad);
 
     rrho_re.resize(ss.size() * g.nrad);
     rrho_im.resize(ss.size() * g.nrad);
@@ -27,6 +27,9 @@ Poisson_solver::Poisson_solver(std::map<string, int> &p) : g(p), ss(g.L_max) {
 }
 
 void Poisson_solver::density(const std::vector<double> &rho_re, const std::vector<double> &rho_im) {
+
+	assert ( rho_re.size() == g.nrad * g.nang);
+	assert ( rho_im.size() == g.nrad * g.nang);
 
     // Calculate fictitious charges first
     q_re = 0.0, q_im = 0.0;
@@ -39,7 +42,7 @@ void Poisson_solver::density(const std::vector<double> &rho_re, const std::vecto
     }
 
     for (size_t i = 0; i < ss.size(); i++) {
-        auto &o = ss.aorb[i];
+        const auto &o = ss.aorb[i];
         for (size_t ir = 0; ir < g.nrad; ir++) {
             double d_re = 0.0, d_im = 0.0;
             for (size_t ia = 0; ia < g.nang; ia++) {
@@ -52,12 +55,18 @@ void Poisson_solver::density(const std::vector<double> &rho_re, const std::vecto
             rrho_im[i * g.nrad + ir] = d_im;
         }
     }
+
+	//printf("q_re = %18.10f q_im = %18.10f \n", q_re, q_im); // Added for debugging purposes; looks fine
 }
 
 void Poisson_solver::potential(std::vector<double> &el_pot_re, std::vector<double> &el_pot_im) {
 
+	assert (el_pot_re.size() == g.nrad * g.nang);
+	assert (el_pot_im.size() == g.nrad * g.nang);
+
     for (size_t i = 0; i < ss.size(); i++) {
-        auto &o = ss.aorb[i];
+        const auto &o = ss.aorb[i];
+
         std::fill(poi_rhs.begin(), poi_rhs.end(), 0.0);
         std::fill(poi_lhs.begin(), poi_lhs.end(), 0.0);
         for(size_t j = 0; j < g.nrad; j++) {
@@ -68,19 +77,19 @@ void Poisson_solver::potential(std::vector<double> &el_pot_re, std::vector<doubl
             poi_rhs[j] = -4. * M_PI * g.r[j] * rrho_re[ i * g.nrad + j ];
         }
 
-		//std::cout << "Created the stencil! (1) " << std::endl;
-		//std::cout.flush();
+
         {
             arma::mat A(poi_lhs.data(), g.nrad, g.nrad, false);
+            //arma::mat A(poi_lhs.data(), g.nrad, g.nrad, true);
 			//A.print();
 			//std::cout << " Determinant of the shifted stencil matrix is " << arma::det(A) << std::endl;
             arma::vec b(poi_rhs.data(), g.nrad, false);
+            //arma::vec b(poi_rhs.data(), g.nrad, true);
 			//b.print();
             arma::vec x;
             bool solved = arma::solve(x, A, b);
             assert(solved);
-			//std::cout << " Solution of the linear system is " << std::endl;
-			//x.print();
+
 
             // Go over the combined radial+angular grid and include the appropriate contributions
             // to the electrostatic potential
@@ -100,8 +109,6 @@ void Poisson_solver::potential(std::vector<double> &el_pot_re, std::vector<doubl
         for(size_t j = 0; j < g.nrad; j++) {
             poi_rhs[j] = -4. * M_PI * g.r[j] * rrho_im[ i * g.nrad + j ];
         }
-		//std::cout << "Created the stencil! (2) " << std::endl;
-		//std::cout.flush();
 
         {
             arma::mat A(poi_lhs.data(), g.nrad, g.nrad, false);
@@ -232,10 +239,10 @@ void Poisson_solver::test_poisson() {
 							// y1_re * y2_re + y1_im * y2_im
 							// Imaginary:
 							// y1_re * y2_im - y1_im * y2_re
-							eri_re += rho_rad * ( (y_re1 * y_re2 + y_im1 * y_im2) * pot_re[ir * g.nrad + ia] - 
+							eri_re += 4. * M_PI * rho_rad * ( (y_re1 * y_re2 + y_im1 * y_im2) * pot_re[ir * g.nrad + ia] - 
 									              (y_re1 * y_im2 - y_im1 * y_re2) * pot_im[ir * g.nrad + ia] ) * g.gridw_r[ir] * g.gridw_a[ia];
 
-							eri_im += rho_rad * ( (y_re1 * y_re2 + y_im1 * y_im2) * pot_im[ir * g.nrad + ia] +
+							eri_im += 4. * M_PI * rho_rad * ( (y_re1 * y_re2 + y_im1 * y_im2) * pot_im[ir * g.nrad + ia] +
 									              (y_re1 * y_im2 - y_im1 * y_re2) * pot_re[ir * g.nrad + ia] ) * g.gridw_r[ir] * g.gridw_a[ia];
 						}
 					}
@@ -251,3 +258,50 @@ void Poisson_solver::test_poisson() {
 	std::cout << "ERI calculation has been completed successfully! " << std::endl;
 
 }
+
+std::tuple<double, double> Poisson_solver::calc_eri(const LM &o1, const LM &o2, const LM &o3, const LM &o4) {
+
+	std::vector<double> prho_re (g.nrad * g.nang), prho_im(g.nrad * g.nang);
+	std::vector<double> pot_re (g.nrad * g.nang), pot_im(g.nrad * g.nang);
+
+	std::fill(prho_re.begin(), prho_re.end(), 0.0);
+	std::fill(prho_im.begin(), prho_im.end(), 0.0);
+	for (size_t ir = 0; ir < g.nrad; ir++) {
+		double rho_rad = exp(-g.r[ir] * g.r[ir]); 
+		for ( size_t ia = 0; ia < g.nang; ia++) {
+			auto [th, p] = g.thetaphi_ang[ia];
+			auto [y_re1, y_im1] = Y(o1.L, o1.M, th, p);
+			auto [y_re2, y_im2] = Y(o2.L, o2.M, th, p);
+			prho_re[ir * g.nang + ia] = rho_rad * (y_re1 * y_re2 + y_im1 * y_im2);
+			prho_im[ir * g.nang + ia] = rho_rad * (y_re1 * y_im2 - y_im1 * y_re2);
+		}
+	}
+
+	density(prho_re, prho_im);
+	potential(pot_re, pot_im);
+
+	assert (pot_re.size() == g.nang * g.nrad);
+	assert (pot_im.size() == g.nang * g.nrad);
+	assert (prho_re.size() == g.nrad * g.nang);
+	assert (prho_im.size() == g.nrad * g.nang);
+
+	double eri_re = 0.0, eri_im = 0.0;
+	
+	for (size_t ir = 0; ir < g.nrad; ir++) {
+		double rho_rad = exp(-g.r[ir] * g.r[ir]); 
+		for (size_t ia = 0; ia < g.nang; ia++) {
+			auto [th, p] = g.thetaphi_ang[ia];
+			auto [y_re1, y_im1] = Y(o3.L, o3.M, th, p);
+			auto [y_re2, y_im2] = Y(o4.L, o4.M, th, p);
+			eri_re += 4. * M_PI * rho_rad * ( (y_re1 * y_re2 + y_im1 * y_im2) * pot_re[ir * g.nrad + ia] - 
+								(y_re1 * y_im2 - y_im1 * y_re2) * pot_im[ir * g.nrad + ia] ) * g.gridw_r[ir] * g.gridw_a[ia];
+
+			eri_im += 4. * M_PI * rho_rad * ( (y_re1 * y_re2 + y_im1 * y_im2) * pot_im[ir * g.nrad + ia] +
+								(y_re1 * y_im2 - y_im1 * y_re2) * pot_re[ir * g.nrad + ia] ) * g.gridw_r[ir] * g.gridw_a[ia];
+		}
+	}
+	
+	return make_tuple(eri_re, eri_im);
+}
+
+

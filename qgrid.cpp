@@ -331,7 +331,6 @@ double Coulomb::eval_simple(double &r1, double &r2, LM &lm1, LM &lm2, LM &lm3, L
 
 double Coulomb::eval_simple_wo_selection(double &r1, double &r2, LM &lm1, LM &lm2, LM &lm3, LM &lm4) {
 
-    // Note: this function is unfinished!!!
 
     double r_min = std::min(r1, r2), r_max = std::max(r1, r2), f = r_min/r_max;
     int L_max = std::max(lm1.L + lm2.L, lm3.L + lm4.L);
@@ -503,10 +502,18 @@ void Coulomb::test_coulomb() {
 
 }
 
-void Coulomb::test_single_quadruplet(LM &o1, LM &o2, LM &o3, LM &o4) {
+double Coulomb::calc_eri(LM &o1, LM &o2, LM &o3, LM &o4) {
+
+	double eri = 0.0;
+
+	auto L_max = std::max( std::max(o1.L, o2.L), std::max(o3.L, o4.L) );
+	assert (L_max <= g.L_max);
+
+	for (size_t i = 0; i < g.nrad; i++) 
+		for (size_t j = 0; j < g.nrad; j++) 
+			eri += exp(-(gsl_pow_2(g.r[i]) + gsl_pow_2(g.r[j]))) * eval_simple(g.r[i], g.r[j], o1, o2, o3, o4) * g.gridw_r[i] * g.gridw_r[j];
 
 
-
-
+	return eri;
 
 }

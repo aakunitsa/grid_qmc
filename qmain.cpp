@@ -8,6 +8,7 @@
 #include "qsystem.h"
 #include "qgrid.h"
 #include "qpoisson.h"
+#include <iostream>
 
 
 int main(int argc, char **argv) {
@@ -35,6 +36,39 @@ int main(int argc, char **argv) {
     R12.test_coulomb();
 	Poisson_solver qp(q.params);
 	qp.test_poisson();
+
+	std::cout << " Comparing Poisson solver results to Coulomb operator evaluation function " << std::endl;
+
+	// Create an orbital set with L_max = 1
+	ShellSet st(1);
+	assert ( g.L_max >= 1);
+	//auto s = st.aorb[0], p_1 = st.aorb[1], p0 = st.aorb[2], p1 = st.aorb[3];
+
+	default_random_engine gen;
+	uniform_int_distribution<int> u(0, 3);
+	size_t num_tests = 50;
+
+	for (size_t i = 0; i < num_tests; i++) {
+		auto o1 = st.aorb[u(gen)];
+		auto o2 = st.aorb[u(gen)];
+		auto o3 = st.aorb[u(gen)];
+		auto o4 = st.aorb[u(gen)];
+		std::cout << " Test # " << i << std::endl;
+		printf("(%d%d | %d%d ) = %18.10f (Laplace) \n", st.orb_id(o1), st.orb_id(o2), st.orb_id(o3), st.orb_id(o4), R12.calc_eri(o1, o2, o3, o4));
+		// Calculate the same thing using Poisson solver 
+		auto [re, im] = qp.calc_eri(o1, o2, o3, o4);
+		//double re = 0.0, im = 0.0;
+		printf("(%d%d | %d%d ) = %18.10f + i * %18.10f (Poisson) \n", st.orb_id(o1), st.orb_id(o2), st.orb_id(o3), st.orb_id(o4), re, im);
+		std::cout << " Legend: " << std::endl;
+		printf("L1, M1 = %d, %d\n", o1.L, o1.M);
+		printf("L2, M2 = %d, %d\n", o2.L, o2.M);
+		printf("L3, M3 = %d, %d\n", o3.L, o3.M);
+		printf("L4, M4 = %d, %d\n", o4.L, o4.M);
+		std::cout << " End of test # " << i << std::endl;
+
+	}
+
+
 /*
     if (q.params["rng"] == 32) {
         std::uniform_int_distribution<int> u6(1,6);

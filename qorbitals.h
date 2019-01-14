@@ -26,7 +26,7 @@ class ShellSet {
         size_t size() { return (L_max + 1) * (L_max + 1); }
         std::vector<LM> aorb;
         size_t L_max;
-        size_t orb_id(LM &o) { return size_t ( o.L * o.L + o.L + o.M ) ; }
+        size_t orb_id(const LM &o) { return size_t ( o.L * o.L + o.L + o.M ) ; }
 };
 
 
