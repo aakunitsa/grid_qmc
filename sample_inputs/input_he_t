@@ -1,0 +1,8 @@
+eq_steps = 4000
+steps = 30000
+N = 300
+electrons = 2
+opt_steps = 15
+mult = 3
+nrad = 120
+nang = 50
