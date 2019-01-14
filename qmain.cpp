@@ -7,6 +7,7 @@
 #include "qmethods.h"
 #include "qsystem.h"
 #include "qgrid.h"
+#include "qpoisson.h"
 
 
 int main(int argc, char **argv) {
@@ -32,6 +33,8 @@ int main(int argc, char **argv) {
     l.test_laplacian();
     Coulomb R12(q.params);
     R12.test_coulomb();
+	Poisson_solver qp(q.params);
+	qp.test_poisson();
 /*
     if (q.params["rng"] == 32) {
         std::uniform_int_distribution<int> u6(1,6);

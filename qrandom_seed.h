@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <vector>
+#include <stdexcept>
 
 
 enum Seeding_alg { gnu_fortran, simple, sequence };

@@ -2,10 +2,10 @@ MF = Makefile
 CC = g++
 #CFLAGS = -march=native -ffast-math -O3 -std=c++14 -I$(HOME)/local/include -DMT64 
 CFLAGS = -ffast-math -O3 -std=c++17 -I$(HOME)/local/include -DMT64 
-#CFLAGS = -O0 -std=c++14 -I$(HOME)/local/include -DMT64 
-#LFLAGS = -L$(HOME)/local/lib -lopenblas -lpthread -lgfortran
 #LFLAGS = $(HOME)/local/lib/libopenblas.a 
-LFLAGS = $(HOME)/local/lib/libgslcblas.a $(HOME)/local/lib/libgsl.a -larmadillo -L$(HOME)/local/lib
+#LFLAGS = $(HOME)/local/lib/libgsl.a $(HOME)/local/lib/libgslcblas.a -larmadillo -L$(HOME)/local/lib
+LFLAGS =   -lgsl -lgslcblas -larmadillo -lm
+LIBS = -L$(HOME)/local/lib
 
 EXE = vmc.x
 
@@ -27,7 +27,7 @@ OBJ = $(SRC:.cpp=.o)  $(SRCEXT:.cpp=.o)
 all:	$(EXE)
 
 $(EXE):	$(OBJ)
-	$(CC) $(LFLAGS) -o $@ $(OBJ) 
+	$(CC) $(LIBS) -o $@ $(OBJ) $(LFLAGS) 
 
 $(OBJ):	$(MF)
 

@@ -9,7 +9,7 @@ class Poisson_solver {
         Poisson_solver(map<string, int> &par);
         void density(const std::vector<double> &rho_re, const std::vector<double> &rho_im); 
         void potential(std::vector<double> &el_pot_re, std::vector<double> &el_pot_im);
-        //void test_poisson();
+        void test_poisson();
 
     private:
         Becke_grid g;

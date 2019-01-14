@@ -4,5 +4,5 @@ N = 300
 electrons = 2
 opt_steps = 15
 mult = 3
-nrad = 120
+nrad = 10
 nang = 50

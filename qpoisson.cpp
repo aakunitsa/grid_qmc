@@ -56,19 +56,24 @@ void Poisson_solver::density(const std::vector<double> &rho_re, const std::vecto
 
 void Poisson_solver::potential(std::vector<double> &el_pot_re, std::vector<double> &el_pot_im) {
 
-    for (size_t i = 0; i < ss.size(); i ++) {
+    for (size_t i = 0; i < ss.size(); i++) {
         auto &o = ss.aorb[i];
         std::fill(poi_rhs.begin(), poi_rhs.end(), 0.0);
         std::fill(poi_lhs.begin(), poi_lhs.end(), 0.0);
-        for(size_t j = 0; j < g.nrad; i++) {
+        for(size_t j = 0; j < g.nrad; j++) {
             poi_lhs[j * g.nrad + j] = 1.0;
             auto p = poi_lhs.data() + j * g.nrad;
             second_deriv(p);
             poi_lhs[j * g.nrad + j] -= double(o.L * (o.L + 1)) / gsl_pow_2(g.r[j]);
             poi_rhs[j] = -4. * M_PI * g.r[j] * rrho_re[ i * g.nrad + j ];
         }
+
+		std::cout << "Created the stencil! (1) " << std::endl;
+		std::cout.flush();
         {
             arma::mat A(poi_lhs.data(), g.nrad, g.nrad, false);
+			A.print();
+			std::cout << " Determinant of the shifted stencil matrix is " << arma::det(A) << std::endl;
             arma::vec b(poi_rhs.data(), g.nrad, false);
             arma::vec x;
             bool solved = arma::solve(x, A, b);
@@ -91,6 +96,8 @@ void Poisson_solver::potential(std::vector<double> &el_pot_re, std::vector<doubl
         for(size_t j = 0; j < g.nrad; i++) {
             poi_rhs[j] = -4. * M_PI * g.r[j] * rrho_im[ i * g.nrad + j ];
         }
+		std::cout << "Created the stencil! (2) " << std::endl;
+		std::cout.flush();
 
         {
             arma::mat A(poi_lhs.data(), g.nrad, g.nrad, false);
@@ -151,5 +158,92 @@ void Poisson_solver::second_deriv(double *f) {
         f[i] += fac4*(cos(z) + 2)/(4*gsl_pow_2(g.r_at)*gsl_pow_3(sin(z))) * d1[i];
         f[i] += fac4 / (4*gsl_pow_2(g.r_at)*gsl_pow_2(sin(z))) * d2[i];
     }
+
+}
+
+void Poisson_solver::test_poisson() {
+
+	std::cout << "Poisson solver will be tested by evaluating a set of ERI-s between the orbitals of the following form: " 
+		      << " psi_lm = e**(-r**2 / 2.) * Ylm, where Ylm is a spherical harmonic with L = l and M = m ; L is less or equal to L_max allowed by a chosen grid " << std::endl;
+
+	int L_max_t = 1;
+	assert ( L_max_t <= g.L_max );
+	ShellSet st(L_max_t);
+
+	std::vector<double> prho_re (g.nang * g.nrad), prho_im (g.nang * g.nrad);
+	std::vector<double> pot_re (g.nang * g.nrad), pot_im (g.nang * g.nrad);
+
+	// Integrals will be calculated following chemists notation
+	// (i1i2|i3i4)
+	for (size_t i1 = 0; i1 < st.size(); i1++) {
+		for (size_t i2 = 0; i2 < st.size(); i2++) {
+			for (size_t i3 = 0; i3 < st.size(); i3++) {
+				for (size_t i4 = 0; i4 < st.size(); i4++) {
+					// treat i1 i2 as the first orbital pair
+					// represent density cc (psi_i1) * psi_i2 on the grid
+					LM &o1 = st.aorb[i1], &o2 = st.aorb[i2];
+					// Just in case
+					std::fill(prho_re.begin(), prho_re.end(), 0.0);
+					std::fill(prho_im.begin(), prho_im.end(), 0.0);
+					std::cout << "Preparing tmp density...";
+					for (size_t ir = 0; ir < g.nrad; ir++) {
+						double rho_rad = exp(-g.r[ir] * g.r[ir]); 
+						for ( size_t ia = 0; ia < g.nang; ia++) {
+							auto [th, p] = g.thetaphi_ang[ia];
+							auto [y_re1, y_im1] = Y(o1.L, o1.M, th, p);
+							auto [y_re2, y_im2] = Y(o2.L, o2.M, th, p);
+							// Real part of the product of two spherical harmonics
+							// y1_re * y2_re + y1_im * y2_im
+							// Imaginary:
+							// y1_re * y2_im - y1_im * y2_re
+							prho_re[ir * g.nang + ia] = rho_rad * (y_re1 * y_re2 + y_im1 * y_im2);
+							prho_im[ir * g.nang + ia] = rho_rad * (y_re1 * y_im2 - y_im1 * y_re2);
+						}
+					}
+
+					std::cout << " Done! " << std::endl;
+					std::cout << "Submitting the density to the solver... ";
+
+					density(prho_re, prho_im);
+
+					std::cout << " Done! " << std::endl;
+					std::cout << "Starting the solver... ";
+					std::cout.flush();
+
+					potential(pot_re, pot_im);
+
+					std::cout << " potential has been evaluated!" << std::endl;
+
+					double eri_re = 0.0, eri_im = 0.0;
+
+					LM &o3 = st.aorb[i3], &o4 = st.aorb[i4];
+
+					for (size_t ir = 0; ir < g.nrad; ir++) {
+						double rho_rad = exp(-g.r[ir] * g.r[ir]); 
+						for ( size_t ia = 0; ia < g.nang; ia++) {
+							auto [th, p] = g.thetaphi_ang[ia];
+							auto [y_re1, y_im1] = Y(o3.L, o3.M, th, p);
+							auto [y_re2, y_im2] = Y(o4.L, o4.M, th, p);
+							// Real part of the product of two spherical harmonics
+							// y1_re * y2_re + y1_im * y2_im
+							// Imaginary:
+							// y1_re * y2_im - y1_im * y2_re
+							eri_re += rho_rad * ( (y_re1 * y_re2 + y_im1 * y_im2) * pot_re[ir * g.nrad + ia] - 
+									              (y_re1 * y_im2 - y_im1 * y_re2) * pot_im[ir * g.nrad + ia] ) * g.gridw_r[ir] * g.gridw_a[ia];
+
+							eri_im += rho_rad * ( (y_re1 * y_re2 + y_im1 * y_im2) * pot_im[ir * g.nrad + ia] +
+									              (y_re1 * y_im2 - y_im1 * y_re2) * pot_re[ir * g.nrad + ia] ) * g.gridw_r[ir] * g.gridw_a[ia];
+						}
+					}
+
+					printf("Re (%d%d|%d%d) = %18.10f \n", st.orb_id(o1), st.orb_id(o2), st.orb_id(o3), st.orb_id(o4), eri_re);
+					printf("Im (%d%d|%d%d) = %18.10f \n", st.orb_id(o1), st.orb_id(o2), st.orb_id(o3), st.orb_id(o4), eri_im);
+
+				}
+			}
+		}
+	}
+
+	std::cout << "ERI calculation has been completed successfully! " << std::endl;
 
 }

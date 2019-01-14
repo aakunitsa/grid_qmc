@@ -3,6 +3,7 @@
 #include "lebedev_grid/sphere_lebedev_rule.hpp"
 #include <assert.h>
 #include <numeric>
+#include <algorithm>
 #include <random>
 #include <iostream>
 #include <gsl/gsl_math.h>
@@ -498,10 +499,12 @@ void Coulomb::test_coulomb() {
 
     }
 
-    std::cout << "Coulomb operator class passed the test!" << std::endl;
+    std::cout << "Coulomb operator evaluation function passed all the tests!" << std::endl;
+
 }
 
 void Coulomb::test_single_quadruplet(LM &o1, LM &o2, LM &o3, LM &o4) {
+
 
 
 
