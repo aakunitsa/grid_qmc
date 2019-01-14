@@ -68,16 +68,19 @@ void Poisson_solver::potential(std::vector<double> &el_pot_re, std::vector<doubl
             poi_rhs[j] = -4. * M_PI * g.r[j] * rrho_re[ i * g.nrad + j ];
         }
 
-		std::cout << "Created the stencil! (1) " << std::endl;
-		std::cout.flush();
+		//std::cout << "Created the stencil! (1) " << std::endl;
+		//std::cout.flush();
         {
             arma::mat A(poi_lhs.data(), g.nrad, g.nrad, false);
-			A.print();
-			std::cout << " Determinant of the shifted stencil matrix is " << arma::det(A) << std::endl;
+			//A.print();
+			//std::cout << " Determinant of the shifted stencil matrix is " << arma::det(A) << std::endl;
             arma::vec b(poi_rhs.data(), g.nrad, false);
+			//b.print();
             arma::vec x;
             bool solved = arma::solve(x, A, b);
             assert(solved);
+			//std::cout << " Solution of the linear system is " << std::endl;
+			//x.print();
 
             // Go over the combined radial+angular grid and include the appropriate contributions
             // to the electrostatic potential
@@ -91,13 +94,14 @@ void Poisson_solver::potential(std::vector<double> &el_pot_re, std::vector<doubl
                 }
             }
         }
+		//std::cout << "Updated electrostatic potential " << std::endl;
         // reset the rhs side
         std::fill(poi_rhs.begin(), poi_rhs.end(), 0.0);
-        for(size_t j = 0; j < g.nrad; i++) {
+        for(size_t j = 0; j < g.nrad; j++) {
             poi_rhs[j] = -4. * M_PI * g.r[j] * rrho_im[ i * g.nrad + j ];
         }
-		std::cout << "Created the stencil! (2) " << std::endl;
-		std::cout.flush();
+		//std::cout << "Created the stencil! (2) " << std::endl;
+		//std::cout.flush();
 
         {
             arma::mat A(poi_lhs.data(), g.nrad, g.nrad, false);
@@ -185,7 +189,7 @@ void Poisson_solver::test_poisson() {
 					// Just in case
 					std::fill(prho_re.begin(), prho_re.end(), 0.0);
 					std::fill(prho_im.begin(), prho_im.end(), 0.0);
-					std::cout << "Preparing tmp density...";
+					//std::cout << "Preparing tmp density...";
 					for (size_t ir = 0; ir < g.nrad; ir++) {
 						double rho_rad = exp(-g.r[ir] * g.r[ir]); 
 						for ( size_t ia = 0; ia < g.nang; ia++) {
@@ -201,18 +205,18 @@ void Poisson_solver::test_poisson() {
 						}
 					}
 
-					std::cout << " Done! " << std::endl;
-					std::cout << "Submitting the density to the solver... ";
+					//std::cout << " Done! " << std::endl;
+					//std::cout << "Submitting the density to the solver... ";
 
 					density(prho_re, prho_im);
 
-					std::cout << " Done! " << std::endl;
-					std::cout << "Starting the solver... ";
-					std::cout.flush();
+					//std::cout << " Done! " << std::endl;
+					//std::cout << "Starting the solver... ";
+					//std::cout.flush();
 
 					potential(pot_re, pot_im);
 
-					std::cout << " potential has been evaluated!" << std::endl;
+					//std::cout << " potential has been evaluated!" << std::endl;
 
 					double eri_re = 0.0, eri_im = 0.0;
 
