@@ -10,6 +10,7 @@ class Poisson_solver {
         void density(const std::vector<double> &rho_re, const std::vector<double> &rho_im); 
         void potential(std::vector<double> &el_pot_re, std::vector<double> &el_pot_im);
         void test_poisson();
+		void test_stencil();
 		std::tuple<double, double> calc_eri(const LM &o1, const LM &o2, const LM &o3, const LM &o4); // This function is only useful for testing purposes, i.e. 
 		                                                                     // comparison with the Coulomb class results
 																			 // Assumes chemists notation

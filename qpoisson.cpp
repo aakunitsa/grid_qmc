@@ -259,6 +259,63 @@ void Poisson_solver::test_poisson() {
 
 }
 
+void Poisson_solver::test_stencil() {
+	// The function performs numerical second derivatives of 
+	// functions using two different approaches - direct finite difference (as implemented in Laplacian class)
+	// and stencil matrix based calculation - and compares the accuracy of the two
+	//
+	
+	std::cout << " Testing the correctness of the stencil matrix calculation " << std::endl;
+
+    double tol = 1e-10;	
+	// Prepare stencil matrix; I will call it A
+	
+    std::vector<double> st(g.nrad * g.nrad); 
+    std::fill(st.begin(), st.end(), 0.0);
+    for (size_t i = 0; i < g.nrad; i++) {
+        st[i * g.nrad + i] = 1.0;
+        second_deriv(st.data() + i * g.nrad);
+    }
+
+	arma::mat A(st.data(), g.nrad, g.nrad, false);
+    
+	// Perform tests for hydrogen atom states first
+	std::vector<double> psi1(g.nrad, 0.0), psi2(g.nrad, 0.0), psi3(g.nrad, 0.0);
+	std::transform(psi1.begin(), psi1.end(), psi1.begin(), psi_1s_H);
+	std::transform(psi2.begin(), psi2.end(), psi2.begin(), psi_2s_H);
+	std::transform(psi3.begin(), psi3.end(), psi3.begin(), psi_3s_H);
+
+	arma::vec p1(psi1.data(), g.nrad, false), p2(psi2.data(), g.nrad, false), p3(psi3.data(), g.nrad, false);
+
+	std::vector<double> lpsi1(g.nrad, 0.0), lpsi2(g.nrad, 0.0), lpsi3(g.nrad, 0.0);
+
+	std::copy(psi1.begin(), psi1.end(), lpsi1.begin());
+	std::copy(psi2.begin(), psi2.end(), lpsi2.begin());
+	std::copy(psi3.begin(), psi3.end(), lpsi3.begin());
+
+	// Calculating second derivatives using second_deriv method of Poisson_solver class
+	second_deriv(lpsi1.data());
+	second_deriv(lpsi2.data());
+	second_deriv(lpsi3.data());
+
+	arma::vec x1(lpsi1.data(), g.nrad, false);
+	arma::vec x2(lpsi2.data(), g.nrad, false);
+	arma::vec x3(lpsi3.data(), g.nrad, false);
+
+	// Calculating second derivatives with the stencil matrix; That procedure amounts to the simple matrix-vector 
+	// multiplication
+	
+	arma::vec x1_s = A * p1, x2_s = A * p2, x3_s =  A * p3;
+	double err1 = arma::max(arma::abs(x1_s - x1)), 
+		   err2 = arma::max(arma::abs(x2_s - x2)),
+		   err3 = arma::max(arma::abs(x3_s - x3));
+
+	printf(" Maximum error for 1S function is %18.10f \n", err1);
+	printf(" Maximum error for 2S function is %18.10f \n", err2);
+	printf(" Maximum error for 3S function is %18.10f \n", err3);
+
+}
+
 std::tuple<double, double> Poisson_solver::calc_eri(const LM &o1, const LM &o2, const LM &o3, const LM &o4) {
 
 	std::vector<double> prho_re (g.nrad * g.nang), prho_im(g.nrad * g.nang);

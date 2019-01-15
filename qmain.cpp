@@ -35,7 +35,8 @@ int main(int argc, char **argv) {
     Coulomb R12(q.params);
     R12.test_coulomb();
 	Poisson_solver qp(q.params);
-	qp.test_poisson();
+	//qp.test_poisson();
+	qp.test_stencil();
 
 	std::cout << " Comparing Poisson solver results to Coulomb operator evaluation function " << std::endl;
 
@@ -46,7 +47,7 @@ int main(int argc, char **argv) {
 
 	default_random_engine gen;
 	uniform_int_distribution<int> u(0, 3);
-	size_t num_tests = 50;
+	size_t num_tests = 10;
 
 	for (size_t i = 0; i < num_tests; i++) {
 		auto o1 = st.aorb[u(gen)];
