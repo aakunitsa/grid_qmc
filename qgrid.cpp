@@ -510,8 +510,9 @@ double Coulomb::calc_eri(LM &o1, LM &o2, LM &o3, LM &o4) {
 	assert (L_max <= g.L_max);
 
 	for (size_t i = 0; i < g.nrad; i++) 
-		for (size_t j = 0; j < g.nrad; j++) 
+		for (size_t j = 0; j < g.nrad; j++) {
 			eri += exp(-(gsl_pow_2(g.r[i]) + gsl_pow_2(g.r[j]))) * eval_simple(g.r[i], g.r[j], o1, o2, o3, o4) * g.gridw_r[i] * g.gridw_r[j];
+		}
 
 
 	return eri;

@@ -36,18 +36,20 @@ int main(int argc, char **argv) {
     R12.test_coulomb();
 	Poisson_solver qp(q.params);
 	//qp.test_poisson();
-	qp.test_stencil();
+	//qp.test_stencil();
+	//qp.test_against_poly();
 
-	std::cout << " Comparing Poisson solver results to Coulomb operator evaluation function " << std::endl;
+	//std::cout << " Comparing Poisson solver results to Coulomb operator evaluation function " << std::endl;
 
 	// Create an orbital set with L_max = 1
+	
+	
 	ShellSet st(1);
 	assert ( g.L_max >= 1);
-	//auto s = st.aorb[0], p_1 = st.aorb[1], p0 = st.aorb[2], p1 = st.aorb[3];
 
 	default_random_engine gen;
 	uniform_int_distribution<int> u(0, 3);
-	size_t num_tests = 10;
+	size_t num_tests = 50;
 
 	for (size_t i = 0; i < num_tests; i++) {
 		auto o1 = st.aorb[u(gen)];
@@ -68,7 +70,8 @@ int main(int argc, char **argv) {
 		std::cout << " End of test # " << i << std::endl;
 
 	}
-
+	
+    
 
 /*
     if (q.params["rng"] == 32) {

@@ -1,6 +1,8 @@
 #include <gsl/gsl_math.h>
 #include "qpoisson.h"
 #include <armadillo>
+#include <fstream>
+#include <cstdlib>
 
 Poisson_solver::Poisson_solver(std::map<string, int> &p) : g(p), ss(g.L_max) {
 
@@ -41,19 +43,45 @@ void Poisson_solver::density(const std::vector<double> &rho_re, const std::vecto
         }
     }
 
+	std::fill (rrho_re.begin(), rrho_re.end(), 0.0);
+	std::fill (rrho_im.begin(), rrho_im.end(), 0.0);
+
     for (size_t i = 0; i < ss.size(); i++) {
         const auto &o = ss.aorb[i];
+		int L_ = o.L, M_ = o.M;
         for (size_t ir = 0; ir < g.nrad; ir++) {
             double d_re = 0.0, d_im = 0.0;
             for (size_t ia = 0; ia < g.nang; ia++) {
                 auto [th, p] = g.thetaphi_ang[ia];
+				assert (g.thetaphi_ang[ia][0] == th && g.thetaphi_ang[ia][1] == p);
+				assert(o.L == L_);
+				assert(o.M == M_);
                 auto [y_re, y_im] = Y(o.L, o.M, th, p);
-                d_re += 4. * M_PI * g.gridw_a[ia] * g.gridw_r[ir] * (y_re * rho_re[ir * g.nang + ia] + y_im * rho_im[ir * g.nang + ia]);
-                d_im += 4. * M_PI * g.gridw_a[ia] * g.gridw_r[ir] * (y_re * rho_im[ir * g.nang + ia] - y_im * rho_re[ir * g.nang + ia]);
+				//assert ((g.gridw_a[ia] > 0.) && (rho_re[ir * g.nang + ia] >= 0.));
+				assert (g.gridw_a[ia] > 0.);
+				if (o.L == 0) assert (y_re > 0);
+                d_re += 4. * M_PI * g.gridw_a[ia] * (y_re * rho_re[ir * g.nang + ia] + y_im * rho_im[ir * g.nang + ia]);
+                d_im += 4. * M_PI * g.gridw_a[ia] * (y_re * rho_im[ir * g.nang + ia] - y_im * rho_re[ir * g.nang + ia]);
             }
             rrho_re[i * g.nrad + ir] = d_re;
             rrho_im[i * g.nrad + ir] = d_im;
         }
+
+		/*std::cout << " Printing the radial densities for orbital " << i << std::endl;
+
+		for (size_t jr = 0; jr < g.nrad; jr++) {
+			std::cout << rrho_re[i * g.nrad + jr] << " ";
+		}
+
+		std::cout << std::endl;
+		std::cout <<  "------ end of real part ------" << std::endl;
+
+		for (size_t jr = 0; jr < g.nrad; jr++) {
+			std::cout << rrho_im[i * g.nrad + jr] << " ";
+		}
+
+		std::cout << std::endl;
+		std::cout <<  "------ end of imaginary part ------" << std::endl; */
     }
 
 	//printf("q_re = %18.10f q_im = %18.10f \n", q_re, q_im); // Added for debugging purposes; looks fine
@@ -63,6 +91,9 @@ void Poisson_solver::potential(std::vector<double> &el_pot_re, std::vector<doubl
 
 	assert (el_pot_re.size() == g.nrad * g.nang);
 	assert (el_pot_im.size() == g.nrad * g.nang);
+
+	std::fill(el_pot_re.begin(), el_pot_re.end(), 0.0); // Very important to make sure that there is nothing sitting in the 
+	std::fill(el_pot_im.begin(), el_pot_im.end(), 0.0); // input vectors in the first place...
 
     for (size_t i = 0; i < ss.size(); i++) {
         const auto &o = ss.aorb[i];
@@ -79,12 +110,12 @@ void Poisson_solver::potential(std::vector<double> &el_pot_re, std::vector<doubl
 
 
         {
-            arma::mat A(poi_lhs.data(), g.nrad, g.nrad, false);
-            //arma::mat A(poi_lhs.data(), g.nrad, g.nrad, true);
+            //arma::mat A(poi_lhs.data(), g.nrad, g.nrad, false);
+            arma::mat A(poi_lhs.data(), g.nrad, g.nrad, true);
 			//A.print();
 			//std::cout << " Determinant of the shifted stencil matrix is " << arma::det(A) << std::endl;
-            arma::vec b(poi_rhs.data(), g.nrad, false);
-            //arma::vec b(poi_rhs.data(), g.nrad, true);
+            //arma::vec b(poi_rhs.data(), g.nrad, false);
+            arma::vec b(poi_rhs.data(), g.nrad, true);
 			//b.print();
             arma::vec x;
             bool solved = arma::solve(x, A, b);
@@ -111,8 +142,10 @@ void Poisson_solver::potential(std::vector<double> &el_pot_re, std::vector<doubl
         }
 
         {
-            arma::mat A(poi_lhs.data(), g.nrad, g.nrad, false);
-            arma::vec b(poi_rhs.data(), g.nrad, false);
+            //arma::mat A(poi_lhs.data(), g.nrad, g.nrad, false);
+            //arma::vec b(poi_rhs.data(), g.nrad, false);
+            arma::mat A(poi_lhs.data(), g.nrad, g.nrad, true);
+            arma::vec b(poi_rhs.data(), g.nrad, true);
             arma::vec x;
             bool solved = arma::solve(x, A, b);
             assert(solved);
@@ -134,8 +167,15 @@ void Poisson_solver::potential(std::vector<double> &el_pot_re, std::vector<doubl
 
 void Poisson_solver::second_deriv(double *f) {
 
+	// Note: this subroutine is different from the one used in the Laplacian 
+	// class as it implements the calculation of the radial second derivative; not the actual 
+	// Laplcian
+	// Finite-difference formulas were taken from Polymer and are due to So Hirata
+
     size_t &N_G = g.nrad;
     double h = M_PI/(N_G + 1), h2 = gsl_pow_2(h);
+     
+
 
     d1[0] = (-1764.*f[0]+4320.*f[1]-5400.*f[2]+4800.*f[3]-2700.*f[4]+864.*f[5]-120.*f[6])/(720.*h);
     d1[1] = (-120.*f[0]-924.*f[1]+1800.*f[2]-1200.*f[3]+600.*f[4]-180.*f[5]+24.*f[6])/(720.*h);
@@ -148,14 +188,17 @@ void Poisson_solver::second_deriv(double *f) {
     d2[3] = (4.*f[0]-54.*f[1]+540.*f[2]-980.*f[3]+540.*f[4]-54.*f[5]+4.*f[6]) / (360.*h2);
 
     d1[N_G - 4] = (-12.*f[N_G-7]+108.*f[N_G-6]-540.*f[N_G-5]+540.*f[N_G-3]-108.*f[N_G-2]+12.*f[N_G-1]) / (720.*h);
-    d1[N_G - 3] = (12.*f[N_G-7]-96.*f[N_G-6]+360.*f[N_G-5]-960.*f[N_G-4]+420.*f[N_G-3]+288.*f[N_G-2]-24.*f[N_G-1]) / (720.*h);
-    d1[N_G - 2] = (-24.*f[N_G-7]+180.*f[N_G-6]-600.*f[N_G-5]+1200.*f[N_G-4]-1800.*f[N_G-3]+924.*f[N_G-2]+120.*f[N_G-1]) / (720.*h);
-    d1[N_G - 1] = (120.*f[N_G-7]-864.*f[N_G-6]+2700.*f[N_G-5]-4800.*f[N_G-4]+5400.*f[N_G-3]-4320.*f[N_G-2]+1764.*f[N_G-1]) / (720.*h);
+    //d1[N_G - 3] = (12.*f[N_G-7]-96.*f[N_G-6]+360.*f[N_G-5]-960.*f[N_G-4]+420.*f[N_G-3]+288.*f[N_G-2]-24.*f[N_G-1]) / (720.*h);
+    d1[N_G - 3] = (-12.*f[N_G-6] +108.*f[N_G-5] -540.*f[N_G-4]   +540.*f[N_G-2]  -108.*f[N_G-1]) / (720.*h);
+    //d1[N_G - 2] = (-24.*f[N_G-7]+180.*f[N_G-6]-600.*f[N_G-5]+1200.*f[N_G-4]-1800.*f[N_G-3]+924.*f[N_G-2]+120.*f[N_G-1]) / (720.*h);
+    d1[N_G - 2] = (12.*f[N_G-6] -96.*f[N_G-5] +360.*f[N_G-4]-960.*f[N_G-3] +420.*f[N_G-2] +288.*f[N_G-1]) / (720.*h);
+    //d1[N_G - 1] = (120.*f[N_G-7]-864.*f[N_G-6]+2700.*f[N_G-5]-4800.*f[N_G-4]+5400.*f[N_G-3]-4320.*f[N_G-2]+1764.*f[N_G-1]) / (720.*h);
+    d1[N_G - 1] = (-24.*f[N_G-6]+180.*f[N_G-5]-600.*f[N_G-4] +1200.*f[N_G-3]-1800.*f[N_G-2]+924.*f[N_G-1]) / (720.*h);
     
     d2[N_G - 4] = (4.*f[N_G-7]-54.*f[N_G-6]+540.*f[N_G-5]-980.*f[N_G-4]+540.*f[N_G-3]-54.*f[N_G-2]+4.*f[N_G-1]) / (360.*h2);
-    d2[N_G - 3] = (4.*f[N_G-7]-24.*f[N_G-6]+30.*f[N_G-5]+400.*f[N_G-4]-840.*f[N_G-3]+456.*f[N_G-2]-26.*f[N_G-1]) / (360.*h2);
-    d2[N_G - 2] = (-26.*f[N_G-7]+186.*f[N_G-6]-570.*f[N_G-5]+940.*f[N_G-4]-510.*f[N_G-3]-294.*f[N_G-2]+274.*f[N_G-1]) / (360.*h2);
-    d2[N_G - 1] = (274.*f[N_G-7]-1944.*f[N_G-6]+5940.*f[N_G-5]-10160.*f[N_G-4]+10530.*f[N_G-3]-6264.*f[N_G-2]+1624.*f[N_G-1]) / (360.*h2);
+    d2[N_G - 3] = ( 4.*f[N_G-6]-54.*f[N_G-5]+540.*f[N_G-4]-980.*f[N_G-3]+540.*f[N_G-2]-54.*f[N_G-1]) / (360.*h2);
+    d2[N_G - 2] = (+4.*f[N_G-6]-24.*f[N_G-5]  +30.*f[N_G-4]+400.*f[N_G-3]-840.*f[N_G-2]+456.*f[N_G-1]) / (360.*h2);
+    d2[N_G - 1] = (-26.*f[N_G-6]+186.*f[N_G-5] -570.*f[N_G-4] +940.*f[N_G-3]  -510.*f[N_G-2]-294.*f[N_G-1]) / (360.*h2);
 
     for (size_t i = 4; i < N_G - 4; i++) {
         d1[i] = (+144.*f[i-4]-1536.*f[i-3]+8064.*f[i-2]-32256.*f[i-1]+32256.*f[i+1]-8064.*f[i+2]+1536.*f[i+3]-144.*f[i+4])/(40320.*h);
@@ -165,8 +208,7 @@ void Poisson_solver::second_deriv(double *f) {
     for (size_t i = 0; i < N_G; i++) {
         double z = M_PI / (N_G + 1) * (i + 1);
         double fac2 = gsl_pow_2(cos(z) - 1), fac4 = gsl_pow_4(cos(z) - 1);
-        f[i]  = fac2 / (g.r_at * sin(z)) * (-1.0) * d1[i] / g.r[i];
-        f[i] += fac4*(cos(z) + 2)/(4*gsl_pow_2(g.r_at)*gsl_pow_3(sin(z))) * d1[i];
+        f[i] = fac4*(cos(z) + 2)/(4*gsl_pow_2(g.r_at)*gsl_pow_3(sin(z))) * d1[i];
         f[i] += fac4 / (4*gsl_pow_2(g.r_at)*gsl_pow_2(sin(z))) * d2[i];
     }
 
@@ -278,6 +320,8 @@ void Poisson_solver::test_stencil() {
     }
 
 	arma::mat A(st.data(), g.nrad, g.nrad, false);
+	//std::cout << " The stencil matrix (calculated by poisson solver) is printed below for reference purposes: " << std::endl; // Can generate a lot of data if the matrix is large..
+	//A.print();
     
 	// Perform tests for hydrogen atom states first
 	std::vector<double> psi1(g.nrad, 0.0), psi2(g.nrad, 0.0), psi3(g.nrad, 0.0);
@@ -313,6 +357,87 @@ void Poisson_solver::test_stencil() {
 	printf(" Maximum error for 1S function is %18.10f \n", err1);
 	printf(" Maximum error for 2S function is %18.10f \n", err2);
 	printf(" Maximum error for 3S function is %18.10f \n", err3);
+
+	std::cout << " Stencil matrix generated by polymer will be read from the text file stencil.dat " << std::endl;
+
+	fstream input;
+	input.open("stencil.dat");
+	std::vector<double> ref_st(g.nrad * g.nrad);
+	if ( input.is_open() ) {
+		for (size_t i = 0; i < g.nrad; i++ ) {
+			for (size_t j = 0; j < g.nrad; j++)  {
+				input >> ref_st[i + j * g.nrad ]; // Transpose while reading 
+			}
+		}
+	}
+
+	arma::vec ref_A_vec(ref_st.data(), g.nrad * g.nrad, false),
+		          A_vec(st.data(), g.nrad * g.nrad, false);
+
+	
+	std::cout << " Comparing the two stencil matrices " << std::endl;
+
+	double err = arma::max(arma::abs(ref_A_vec - A_vec)); 
+
+	printf(" The stencil matrix has maximum error of %18.10f \n", err);
+	
+
+}
+
+void Poisson_solver::test_against_poly() {
+
+	// This function reads reference data produced by polymer code 
+	// and compares it the results generated by the Poisson_solver class
+	// It is assumed that the calculations were performed on the equvalent 
+	// grids (up to rigid rotation)
+
+	
+	std::vector<double> ref_rho_re(g.nrad * g.nang, 0.0), ref_rho_im(g.nrad * g.nang, 0.0); // Reference data is assumed to be real
+	std::vector<double> ref_pot_re(g.nrad * g.nang, 0.0), ref_pot_im(g.nrad * g.nang, 0.0); 
+	std::vector<double> pot_re(g.nrad * g.nang), pot_im(g.nrad * g.nang);
+	
+	fstream input, output;
+	input.open("RHO.DAT");
+	output.open("RHO_IN_CPP.DAT", ios::out);
+	if (input.is_open()) {
+		for (size_t i = 0; i < g.nrad; i++) {
+			for (size_t j = 0; j < g.nang; j++) {
+				input >> ref_rho_re[i * g.nang + j];
+				assert(ref_rho_re[i * g.nang + j] >= 0.);
+				output << ref_rho_re[i * g.nang + j] << std::endl;
+			}
+		}
+	}
+	input.close();
+	output.close();
+
+	input.open("POTENTIAL.DAT");
+	output.open("POTENTIAL_IN_CPP.DAT", ios::out);
+	if (input.is_open()) {
+		for (size_t i = 0; i < g.nrad; i++) {
+			for (size_t j = 0; j < g.nang; j++) {
+				input >> ref_pot_re[i * g.nang + j];
+				output << ref_pot_re[i * g.nang + j] << std::endl;
+			}
+		}
+	}
+	input.close();
+	output.close();
+
+	density(ref_rho_re, ref_rho_im);
+	potential(pot_re, pot_im);
+
+	arma::vec ref_apot_re(ref_pot_re.data(), g.nrad * g.nang, false),
+		      ref_apot_im(ref_pot_im.data(), g.nrad * g.nang, false),
+			  apot_re(pot_re.data(), g.nrad * g.nang, false),
+			  apot_im(pot_im.data(), g.nrad  * g.nang, false);
+
+	// Calculate maximum errors
+	
+	double err_re = arma::max(arma::abs(ref_apot_re - apot_re)),
+		   err_im = arma::max(arma::abs(ref_apot_im - apot_im));
+
+	printf(" Maximum difference between the real parts of the potential is %18.10f (%18.10f for imaginary) \n", err_re, err_im);
 
 }
 
