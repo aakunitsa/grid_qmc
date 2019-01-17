@@ -21,7 +21,8 @@ class Poisson_solver {
         Becke_grid g;
         std::vector<double> rrho_re, rrho_im;
         double q_re, q_im;
-        std::vector<double> poi_lhs, poi_rhs, d1, d2;
+        std::vector<double> poi_lhs, poi_rhs, d1, d2, pc;
+		std::vector<int> ipiv; // auxiliary matrix to run dgesv directly from lapack
         ShellSet ss;
 
         void second_deriv(double *f); // input: array f of the size nrad; output: the values of f will be replaced with 

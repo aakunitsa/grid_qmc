@@ -4,6 +4,9 @@
 #include <fstream>
 #include <cstdlib>
 
+// Note : this lapack subroutine destroys matrix A !!!
+extern "C" void dgesv_(int *N, int *NRHS, double *A, int *LDA, int *IPIV, double *B, int *LDB, int *INFO );
+
 Poisson_solver::Poisson_solver(std::map<string, int> &p) : g(p), ss(g.L_max) {
 
 
@@ -11,13 +14,6 @@ Poisson_solver::Poisson_solver(std::map<string, int> &p) : g(p), ss(g.L_max) {
     
     // Set up a stencil for a given grid
     poi_lhs.resize(g.nrad * g.nrad); // Stencil matrix
-    /*
-    std::fill(poi_lhs.begin(), poi_lhs.end(), 0.0);
-    for (size_t i = 0; i < g.nang; i++) {
-        poi_lhs[i * g.nrad + i] = 1.0;
-        second_deriv(poi_lhs.data() + i * g.nrad);
-    }
-    */
 
     poi_rhs.resize(g.nrad);
 
@@ -25,6 +21,9 @@ Poisson_solver::Poisson_solver(std::map<string, int> &p) : g(p), ss(g.L_max) {
     rrho_im.resize(ss.size() * g.nrad);
     d1.resize(g.nrad);
     d2.resize(g.nrad);
+	pc.resize(g.nrad); // temporary variable to generate stencil matrix
+	ipiv.resize(g.nrad); // IPIV array; see LAPACK manual
+
 
 }
 
@@ -100,26 +99,25 @@ void Poisson_solver::potential(std::vector<double> &el_pot_re, std::vector<doubl
 
         std::fill(poi_rhs.begin(), poi_rhs.end(), 0.0);
         std::fill(poi_lhs.begin(), poi_lhs.end(), 0.0);
+
         for(size_t j = 0; j < g.nrad; j++) {
-            poi_lhs[j * g.nrad + j] = 1.0;
-            auto p = poi_lhs.data() + j * g.nrad;
-            second_deriv(p);
+			std::fill(pc.begin(), pc.end(), 0.0); pc[j] = 1.0;
+            second_deriv(pc.data());
+			// After the previous call array p contains the j-th column of the stencil matrix
+			// Transfer the contents of p to poi_rhs; this can be done directly since LAPACK 
+			// assumes the column major ordering of the matrix: 
+			std::copy (pc.begin(), pc.end(), std::next(poi_lhs.begin(), j * g.nrad));
             poi_lhs[j * g.nrad + j] -= double(o.L * (o.L + 1)) / gsl_pow_2(g.r[j]);
             poi_rhs[j] = -4. * M_PI * g.r[j] * rrho_re[ i * g.nrad + j ];
         }
 
 
         {
-            //arma::mat A(poi_lhs.data(), g.nrad, g.nrad, false);
-            arma::mat A(poi_lhs.data(), g.nrad, g.nrad, true);
-			//A.print();
-			//std::cout << " Determinant of the shifted stencil matrix is " << arma::det(A) << std::endl;
-            //arma::vec b(poi_rhs.data(), g.nrad, false);
-            arma::vec b(poi_rhs.data(), g.nrad, true);
-			//b.print();
-            arma::vec x;
-            bool solved = arma::solve(x, A, b);
-            assert(solved);
+			int info, nrhs = 1, N = int(g.nrad);
+			dgesv_(&N, &nrhs, poi_lhs.data(), &N, ipiv.data(), poi_rhs.data(), &N, &info);
+            assert(info == 0); // If it is not zero - something went wrong
+
+			const auto &x = poi_rhs;
 
 
             // Go over the combined radial+angular grid and include the appropriate contributions
@@ -134,21 +132,30 @@ void Poisson_solver::potential(std::vector<double> &el_pot_re, std::vector<doubl
                 }
             }
         }
-		//std::cout << "Updated electrostatic potential " << std::endl;
-        // reset the rhs side
+
+        // reset all the relevant matrices (ie the lhs and the rhs of the Poisson equation)
+		
         std::fill(poi_rhs.begin(), poi_rhs.end(), 0.0);
+        std::fill(poi_lhs.begin(), poi_lhs.end(), 0.0);
+
         for(size_t j = 0; j < g.nrad; j++) {
+			std::fill(pc.begin(), pc.end(), 0.0); pc[j] = 1.0;
+            second_deriv(pc.data());
+			// After the previous call array p contains the j-th column of the stencil matrix
+			// Transfer the contents of p to poi_rhs; this can be done directly since LAPACK 
+			// assumes the column major ordering of the matrix: 
+			std::copy (pc.begin(), pc.end(), std::next(poi_lhs.begin(), j * g.nrad));
+            poi_lhs[j * g.nrad + j] -= double(o.L * (o.L + 1)) / gsl_pow_2(g.r[j]);
             poi_rhs[j] = -4. * M_PI * g.r[j] * rrho_im[ i * g.nrad + j ];
         }
 
         {
-            //arma::mat A(poi_lhs.data(), g.nrad, g.nrad, false);
-            //arma::vec b(poi_rhs.data(), g.nrad, false);
-            arma::mat A(poi_lhs.data(), g.nrad, g.nrad, true);
-            arma::vec b(poi_rhs.data(), g.nrad, true);
-            arma::vec x;
-            bool solved = arma::solve(x, A, b);
-            assert(solved);
+
+			int info, nrhs = 1, N = int(g.nrad);
+			dgesv_(&N, &nrhs, poi_lhs.data(), &N, ipiv.data(), poi_rhs.data(), &N, &info);
+            assert(info == 0); // If it is not zero - something went wrong
+
+			const auto &x = poi_rhs;
 
             // Go over the combined radial+angular grid and include the appropriate contributions
             // to the electrostatic potential
