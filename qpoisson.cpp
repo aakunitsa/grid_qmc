@@ -6,6 +6,7 @@
 
 // Note : this lapack subroutine destroys matrix A !!!
 extern "C" void dgesv_(int *N, int *NRHS, double *A, int *LDA, int *IPIV, double *B, int *LDB, int *INFO );
+extern "C" void second_deriv2_(double *R, int *IA, int *NRAD);
 
 Poisson_solver::Poisson_solver(std::map<string, int> &p) : g(p), ss(g.L_max) {
 
@@ -102,7 +103,9 @@ void Poisson_solver::potential(std::vector<double> &el_pot_re, std::vector<doubl
 
         for(size_t j = 0; j < g.nrad; j++) {
 			std::fill(pc.begin(), pc.end(), 0.0); pc[j] = 1.0;
-            second_deriv(pc.data());
+            //second_deriv(pc.data());
+			int iat = 2, nrad = g.nrad;
+            second_deriv2_(pc.data(), &iat, &nrad);
 			// After the previous call array p contains the j-th column of the stencil matrix
 			// Transfer the contents of p to poi_rhs; this can be done directly since LAPACK 
 			// assumes the column major ordering of the matrix: 
@@ -140,7 +143,9 @@ void Poisson_solver::potential(std::vector<double> &el_pot_re, std::vector<doubl
 
         for(size_t j = 0; j < g.nrad; j++) {
 			std::fill(pc.begin(), pc.end(), 0.0); pc[j] = 1.0;
-            second_deriv(pc.data());
+            //second_deriv(pc.data());
+			int iat = 2, nrad = g.nrad;
+            second_deriv2_(pc.data(), &iat, &nrad);
 			// After the previous call array p contains the j-th column of the stencil matrix
 			// Transfer the contents of p to poi_rhs; this can be done directly since LAPACK 
 			// assumes the column major ordering of the matrix: 
@@ -185,38 +190,83 @@ void Poisson_solver::second_deriv(double *f) {
 
 
     d1[0] = (-1764.*f[0]+4320.*f[1]-5400.*f[2]+4800.*f[3]-2700.*f[4]+864.*f[5]-120.*f[6])/(720.*h);
+    //R1D(1)=(-1764.0D0*R(1)+4320.0D0*R(2)-5400.0D0*R(3)+4800.0D0*R(4) -2700.0D0*R(5)+864.0D0*R(6)-120.0D0*R(7))/(720.0D0*H)
+
     d1[1] = (-120.*f[0]-924.*f[1]+1800.*f[2]-1200.*f[3]+600.*f[4]-180.*f[5]+24.*f[6])/(720.*h);
+    //R1D(2)=(-120.0D0*R(1)-924.0D0*R(2)+1800.0D0*R(3)-1200.0D0*R(4) +600.0D0*R(5)-180.0D0*R(6)+24.0D0*R(7))/(720.0D0*H)
+
     d1[2] = (24.*f[0]-288.*f[1]-420.*f[2]+960.*f[3]-360.*f[4]+96.*f[5]-12.*f[6])/(720.*h);
+    //R1D(3)=(24.0D0*R(1)-288.0D0*R(2)-420.0D0*R(3)+960.0D0*R(4) -360.0D0*R(5)+96.0D0*R(6)-12.0D0*R(7))/(720.0D0*H)
+
     d1[3] = (-12.*f[0]+108.*f[1]-540.*f[2]+540.*f[4]-108.*f[5]+12.*f[6]) / (720.*h);
-    
-    d2[0] = (1624.*f[0]-6264.*f[1]+10530.*f[2]-10160.*f[3]+5940.*f[4]-1944.*f[5]+274.*f[6]) / (360.*h2);
-    d2[1] = (274.*f[0]-294.*f[1]-510.*f[2]+940.*f[3]-570.*f[4]+186.*f[5]-26.*f[6]) / (360.*h2);
-    d2[2] = (-26.*f[0]+456.*f[1]-840.*f[2]+400.*f[3]+30.*f[4]-24.*f[5]+4.*f[6]) / (360.*h2);
-    d2[3] = (4.*f[0]-54.*f[1]+540.*f[2]-980.*f[3]+540.*f[4]-54.*f[5]+4.*f[6]) / (360.*h2);
+    //R1D(4)=(-12.0D0*R(1)+108.0D0*R(2)-540.0D0*R(3) +540.0D0*R(5)-108.0D0*R(6)+12.0D0*R(7))/(720.0D0*H)
+
 
     d1[N_G - 4] = (-12.*f[N_G-7]+108.*f[N_G-6]-540.*f[N_G-5]+540.*f[N_G-3]-108.*f[N_G-2]+12.*f[N_G-1]) / (720.*h);
-    //d1[N_G - 3] = (12.*f[N_G-7]-96.*f[N_G-6]+360.*f[N_G-5]-960.*f[N_G-4]+420.*f[N_G-3]+288.*f[N_G-2]-24.*f[N_G-1]) / (720.*h);
+    //R1D(RG-3)=(-12.0D0*R(RG-6)+108.0D0*R(RG-5)-540.0D0*R(RG-4) +540.0D0*R(RG-2)-108.0D0*R(RG-1)+12.0D0*R(RG))/(720.0D0*H)
+
     d1[N_G - 3] = (-12.*f[N_G-6] +108.*f[N_G-5] -540.*f[N_G-4]   +540.*f[N_G-2]  -108.*f[N_G-1]) / (720.*h);
-    //d1[N_G - 2] = (-24.*f[N_G-7]+180.*f[N_G-6]-600.*f[N_G-5]+1200.*f[N_G-4]-1800.*f[N_G-3]+924.*f[N_G-2]+120.*f[N_G-1]) / (720.*h);
+    //R1D(RG-2)=(-12.0D0*R(RG-5)+108.0D0*R(RG-4)-540.0D0*R(RG-3) +540.0D0*R(RG-1)-108.0D0*R(RG))/(720.0D0*H)
+
     d1[N_G - 2] = (12.*f[N_G-6] -96.*f[N_G-5] +360.*f[N_G-4]-960.*f[N_G-3] +420.*f[N_G-2] +288.*f[N_G-1]) / (720.*h);
-    //d1[N_G - 1] = (120.*f[N_G-7]-864.*f[N_G-6]+2700.*f[N_G-5]-4800.*f[N_G-4]+5400.*f[N_G-3]-4320.*f[N_G-2]+1764.*f[N_G-1]) / (720.*h);
+    //R1D(RG-1)=(+12.0D0*R(RG-5)-96.0D0*R(RG-4)+360.0D0*R(RG-3)-960.0D0*R(RG-2) +420.0D0*R(RG-1)+288.0D0*R(RG))/(720.0D0*H)
+
     d1[N_G - 1] = (-24.*f[N_G-6]+180.*f[N_G-5]-600.*f[N_G-4] +1200.*f[N_G-3]-1800.*f[N_G-2]+924.*f[N_G-1]) / (720.*h);
+    //R1D(RG)=(-24.0D0*R(RG-5)+180.0D0*R(RG-4)-600.0D0*R(RG-3)+1200.0D0*R(RG-2) -1800.0D0*R(RG-1)+924.0D0*R(RG))/(720.0D0*H)
+	
+
+    
+    d2[0] = (1624.*f[0]-6264.*f[1]+10530.*f[2]-10160.*f[3]+5940.*f[4]-1944.*f[5]+274.*f[6]) / (360.*h2);
+    //R2D(1)=(1624.0D0*R(1)-6264.0D0*R(2)+10530.0D0*R(3)-10160.0D0*R(4)+5940.0D0*R(5)-1944.0D0*R(6)+274.0D0*R(7))/(360.0D0*H**2)
+    d2[1] = (274.*f[0]-294.*f[1]-510.*f[2]+940.*f[3]-570.*f[4]+186.*f[5]-26.*f[6]) / (360.*h2);
+    //R2D(2)=(274.0D0*R(1)-294.0D0*R(2)-510.0D0*R(3)+940.0D0*R(4)-570.0D0*R(5)+186.0D0*R(6)-26.0D0*R(7))/(360.0D0*H**2)
+    d2[2] = (-26.*f[0]+456.*f[1]-840.*f[2]+400.*f[3]+30.*f[4]-24.*f[5]+4.*f[6]) / (360.*h2);
+    //R2D(3)=(-26.0D0*R(1)+456.0D0*R(2)-840.0D0*R(3)+400.0D0*R(4)+30.0D0*R(5)-24.0D0*R(6)+4.0D0*R(7))/(360.0D0*H**2)
+    d2[3] = (4.*f[0]-54.*f[1]+540.*f[2]-980.*f[3]+540.*f[4]-54.*f[5]+4.*f[6]) / (360.*h2);
+    //R2D(4)=(4.0D0*R(1)-54.0D0*R(2)+540.0D0*R(3)-980.0D0*R(4)+540.0D0*R(5)-54.0D0*R(6)+4.0D0*R(7))/(360.0D0*H**2)
+
     
     d2[N_G - 4] = (4.*f[N_G-7]-54.*f[N_G-6]+540.*f[N_G-5]-980.*f[N_G-4]+540.*f[N_G-3]-54.*f[N_G-2]+4.*f[N_G-1]) / (360.*h2);
+    //R2D(RG-3)=(4.0D0*R(RG-6)-54.0D0*R(RG-5)+540.0D0*R(RG-4)-980.0D0*R(RG-3)+540.0D0*R(RG-2)-54.0D0*R(RG-1)+4.0D0*R(RG))/(360.0D0*H**2)
     d2[N_G - 3] = ( 4.*f[N_G-6]-54.*f[N_G-5]+540.*f[N_G-4]-980.*f[N_G-3]+540.*f[N_G-2]-54.*f[N_G-1]) / (360.*h2);
+    //R2D(RG-2)=(+4.0D0*R(RG-5)-54.0D0*R(RG-4)  +540.0D0*R(RG-3)-980.0D0*R(RG-2)+540.0D0*R(RG-1)-54.0D0*R(RG))/(360.0D0*H**2)
     d2[N_G - 2] = (+4.*f[N_G-6]-24.*f[N_G-5]  +30.*f[N_G-4]+400.*f[N_G-3]-840.*f[N_G-2]+456.*f[N_G-1]) / (360.*h2);
+    //R2D(RG-1)=(+4.0D0*R(RG-5)-24.0D0*R(RG-4)   +30.0D0*R(RG-3)+400.0D0*R(RG-2)-840.0D0*R(RG-1)+456.0D0*R(RG))/(360.0D0*H**2)
     d2[N_G - 1] = (-26.*f[N_G-6]+186.*f[N_G-5] -570.*f[N_G-4] +940.*f[N_G-3]  -510.*f[N_G-2]-294.*f[N_G-1]) / (360.*h2);
+    //R2D(RG)=(-26.0D0*R(RG-5)+186.0D0*R(RG-4)  -570.0D0*R(RG-3)+940.0D0*R(RG-2)-510.0D0*R(RG-1)-294.0D0*R(RG))/(360.0D0*H**2)
 
     for (size_t i = 4; i < N_G - 4; i++) {
         d1[i] = (+144.*f[i-4]-1536.*f[i-3]+8064.*f[i-2]-32256.*f[i-1]+32256.*f[i+1]-8064.*f[i+2]+1536.*f[i+3]-144.*f[i+4])/(40320.*h);
+        //R1D(I)=(+144.0D0*R(I-4)-1536.0D0*R(I-3)+8064.0D0*R(I-2)-32256.0D0*R(I-1) +32256.0D0*R(I+1)-8064.0D0*R(I+2)+1536.0D0*R(I+3)-144.0D0*R(I+4))/(40320.0D0*H)
         d2[i] = (-36.*f[i-4]+512.*f[i-3]-4032.*f[i-2]+32256.*f[i-1]-57400.*f[i]+32256.*f[i+1]-4032.*f[i+2]+512.*f[i+3]-36.*f[i+4])/(20160.*h2);
+        //R2D(I)=(-36.0D0*R(I-4) +512.0D0*R(I-3)-4032.0D0*R(I-2)+32256.0D0*R(I-1)-57400.0D0*R(I)+32256.0D0*R(I+1)-4032.0D0*R(I+2)+512.0D0*R(I+3)-36.0D0*R(I+4))/(20160.0D0*H**2)
     }
+
+	std::cout << " Printing d arrays before calculating derivatives " << std::endl;
+	std::cout << " D1: " << std::endl;
+
+	for (size_t i = 0; i < N_G; i++) {
+		std::cout << d1[i] << " " ;
+	}
+
+	std::cout << std::endl;
+
+	std::cout << " D2: " << std::endl;
+
+	for (size_t i = 0; i < N_G; i++) {
+		std::cout << d2[i] << " " ;
+	}
+
+	std::cout << std::endl;
 
     for (size_t i = 0; i < N_G; i++) {
         double z = M_PI / (N_G + 1) * (i + 1);
         double fac2 = gsl_pow_2(cos(z) - 1), fac4 = gsl_pow_4(cos(z) - 1);
-        f[i] = fac4*(cos(z) + 2)/(4*gsl_pow_2(g.r_at)*gsl_pow_3(sin(z))) * d1[i];
+        double fac3 = gsl_pow_3(1 - cos(z));
+		f[i] = d1[i] * (fac3/(2.0*gsl_pow_2(g.r_at)*sin(z)) - fac4*cos(z)/(4.0*gsl_pow_2(g.r_at)*gsl_pow_3(sin(z))));
+        //f[i] = fac4*(cos(z) + 2)/(4*gsl_pow_2(g.r_at)*gsl_pow_3(sin(z))) * d1[i];
         f[i] += fac4 / (4*gsl_pow_2(g.r_at)*gsl_pow_2(sin(z))) * d2[i];
+        //R(I)=+R1D(I)*((1.0D0-X)**3/(2.0D0*R0**2*DSIN(OMEGA)) - (1.0D0-X)**4*DCOS(OMEGA)/(4.0D0*R0**2*DSIN(OMEGA)**3)) +R2D(I)*((1.0D0-X)**2/(2.0D0*R0*DSIN(OMEGA)))**2
     }
 
 }
@@ -323,7 +373,9 @@ void Poisson_solver::test_stencil() {
     std::fill(st.begin(), st.end(), 0.0);
     for (size_t i = 0; i < g.nrad; i++) {
         st[i * g.nrad + i] = 1.0;
-        second_deriv(st.data() + i * g.nrad);
+		int iat = 2, nrad = g.nrad;
+        //second_deriv(st.data() + i * g.nrad);
+        second_deriv2_(st.data() + i * g.nrad, &iat, &nrad);
     }
 
 	arma::mat A(st.data(), g.nrad, g.nrad, false);
@@ -364,6 +416,32 @@ void Poisson_solver::test_stencil() {
 	printf(" Maximum error for 1S function is %18.10f \n", err1);
 	printf(" Maximum error for 2S function is %18.10f \n", err2);
 	printf(" Maximum error for 3S function is %18.10f \n", err3);
+
+	std::cout << " Comparing second_deriv2 subroutine from Polymer with second_deriv method of the Poisson_solver class " << std::endl;
+
+	std::vector<double> lpsi1_f(g.nrad), lpsi2_f(g.nrad), lpsi3_f(g.nrad);
+	std::copy(psi1.begin(), psi1.end(), lpsi1_f.begin());
+	std::copy(psi2.begin(), psi2.end(), lpsi2_f.begin());
+	std::copy(psi3.begin(), psi3.end(), lpsi3_f.begin());
+
+	int ia = 2;
+	int nrad = int(g.nrad);
+
+	second_deriv2_(lpsi1_f.data(), &ia, &nrad);
+	second_deriv2_(lpsi2_f.data(), &ia, &nrad);
+	second_deriv2_(lpsi3_f.data(), &ia, &nrad);
+
+	arma::vec x1_f(lpsi1_f.data(), g.nrad, false);
+	arma::vec x2_f(lpsi2_f.data(), g.nrad, false);
+	arma::vec x3_f(lpsi3_f.data(), g.nrad, false);
+
+	double err1_f = arma::max(arma::abs(x1_f - x1)), 
+		   err2_f = arma::max(arma::abs(x2_f - x2)),
+		   err3_f = arma::max(arma::abs(x3_f - x3));
+
+	printf(" Maximum error for 1S function is %18.10f (Fortran) \n", err1_f);
+	printf(" Maximum error for 2S function is %18.10f (Fortran) \n", err2_f);
+	printf(" Maximum error for 3S function is %18.10f (Fortran) \n", err3_f);
 
 	std::cout << " Stencil matrix generated by polymer will be read from the text file stencil.dat " << std::endl;
 

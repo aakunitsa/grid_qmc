@@ -36,14 +36,14 @@ int main(int argc, char **argv) {
     R12.test_coulomb();
 	Poisson_solver qp(q.params);
 	//qp.test_poisson();
-	//qp.test_stencil();
+	qp.test_stencil();
 	//qp.test_against_poly();
 
 	//std::cout << " Comparing Poisson solver results to Coulomb operator evaluation function " << std::endl;
 
 	// Create an orbital set with L_max = 1
 	
-	
+    /*	
 	ShellSet st(1);
 	assert ( g.L_max >= 1);
 
@@ -70,6 +70,7 @@ int main(int argc, char **argv) {
 		std::cout << " End of test # " << i << std::endl;
 
 	}
+	*/
 	
     
 
