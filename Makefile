@@ -2,7 +2,8 @@ MF = Makefile
 CC = g++
 FC = gfortran
 #CFLAGS = -march=native -ffast-math -O3 -std=c++14 -I$(HOME)/local/include -DMT64 
-CFLAGS = -O3 -std=c++17 -I$(HOME)/local/include -DMT64 
+#CFLAGS = -O3 -std=c++17 -I$(HOME)/local/include -DMT64 
+CFLAGS = -O0 -std=c++17 -I$(HOME)/local/include -DMT64 
 FFLAGS = -O3
 #LFLAGS = $(HOME)/local/lib/libopenblas.a 
 #LFLAGS = $(HOME)/local/lib/libgsl.a $(HOME)/local/lib/libgslcblas.a -larmadillo -L$(HOME)/local/lib

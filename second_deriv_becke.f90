@@ -3,12 +3,12 @@ MODULE DERIVATIVE
 IMPLICIT NONE
 
 INTEGER :: RG
-DOUBLE PRECISION,PARAMETER :: PI = 3.14159265358979D0
-DOUBLE PRECISION,PARAMETER :: BSRADI(17) = &
-  (/0.472D0,0.472D0,1.370D0,0.992D0,0.803D0,0.661D0,0.614D0,0.567D0,0.472D0, &
-    0.472D0,1.701D0,1.417D0,1.181D0,1.039D0,0.945D0,0.945D0,0.945D0/) ! Ne DATA WAS MISSING IN THE ORIGINAL
-DOUBLE PRECISION,ALLOCATABLE :: SG_GAUSS_CHEV(:)      ! RADIAL GRID POINTS
-DOUBLE PRECISION,ALLOCATABLE :: SG_GAUSS_CHEV_W(:)    ! RADIAL GRID WEIGHTS
+REAL(8),PARAMETER :: PI = 3.14159265358979_8
+REAL(8),PARAMETER :: BSRADI(17) = &
+  (/0.472_8,0.472_8,1.370_8,0.992_8,0.803_8,0.661_8,0.614_8,0.567_8,0.472_8, &
+    0.472_8,1.701_8,1.417_8,1.181_8,1.039_8,0.945_8,0.945_8,0.945_8/) ! Ne DATA WAS MISSING IN THE ORIGINAL
+REAL(8),ALLOCATABLE :: SG_GAUSS_CHEV(:)      ! RADIAL GRID POINTS
+REAL(8),ALLOCATABLE :: SG_GAUSS_CHEV_W(:)    ! RADIAL GRID WEIGHTS
 
 CONTAINS
 
@@ -57,10 +57,10 @@ SUBROUTINE SECOND_DERIV(R, IA, NRAD ) bind (C, name = 'second_deriv_')
    ENDDO
 
    
-   write(*, *) 'R1D :'
+   !write(*, *) 'R1D :'
    !write(*, *) 'R1D(1) = ', R1D(1)
    !write(*, *) 'R1D(2) = ', R1D(2)
-   write(*, '(10F13.6 )') (R1D(I), I = 1, RG)
+   !write(*, '(10F13.6 )') (R1D(I), I = 1, RG)
 
    ! SECOND DERIVATIVES
    R2D(1)=(1624.0D0*R(1)-6264.0D0*R(2)+10530.0D0*R(3)-10160.0D0*R(4) &
@@ -84,10 +84,10 @@ SUBROUTINE SECOND_DERIV(R, IA, NRAD ) bind (C, name = 'second_deriv_')
          +32256.0D0*R(I+1)-4032.0D0*R(I+2)+512.0D0*R(I+3)-36.0D0*R(I+4))/(20160.0D0*H**2)
    ENDDO
 
-   write(*, *) 'R2D :'
+   !write(*, *) 'R2D :'
    !write(*, *) 'R2D(1) = ', R2D(1)
    !write(*, *) 'R2D(2) = ', R2D(2)
-   write(*, '(10F13.6 )') (R2D(I), I = 1, RG)
+   !write(*, '(10F13.6 )') (R2D(I), I = 1, RG)
 
    R0=BSRADI(IA)
    DO I=1,RG
@@ -173,8 +173,8 @@ SUBROUTINE SECOND_DERIV2(R,IA, NRAD) bind (C, name = 'second_deriv2_')
              +32256.0D0*R(I+1)-4032.0D0*R(I+2)+512.0D0*R(I+3)-36.0D0*R(I+4))/(20160.0D0*H**2)
     ENDDO
 
-    WRITE(*,*) R1D(1:RG)
-    WRITE(*,*) R2D(1:RG)
+    !WRITE(*,*) R1D(1:RG)
+    !WRITE(*,*) R2D(1:RG)
 
    R0=BSRADI(IA)
    DO I=1,RG
@@ -186,6 +186,87 @@ SUBROUTINE SECOND_DERIV2(R,IA, NRAD) bind (C, name = 'second_deriv2_')
    ENDDO
 
    DEALLOCATE(R2D,R1D)
+
+   CALL DESTROY_RGRID
+
+   RETURN
+END SUBROUTINE
+
+SUBROUTINE SECOND_DERIV2_DEBUG(R,IA, NRAD, R1D, R2D) bind (C, name = 'second_deriv2_debug_')
+! 7-point finite-difference second differentiation
+! (1/r)(d2/dr2)r r^-1f(r) = (1/r)(d2x/dr2)(df/dx) + (1/r)(dx/dr)^2(d2f/dx2)
+   
+   use iso_c_binding
+
+
+   IMPLICIT NONE
+   INTEGER :: IA, NRAD
+   ! AUTOMATIC ARRAYS
+   real(8)   :: R(1:NRAD), R1D(1:NRAD), R2D(1:NRAD)
+   real(8) :: H
+   INTEGER :: I
+   real(8) :: R0,X,OMEGA
+
+   CALL CONSTRUCT_RGRID(NRAD, IA)
+
+   H=PI/DFLOAT(RG+1)
+
+   ! FIRST DERIVATIVES
+    R1D(1)=(-1764.0_8 * R(1)+4320.0_8 *R(2)-5400.0_8*R(3)+4800.0_8*R(4) &
+            -2700.0_8*R(5)+864.0_8*R(6)-120.0_8*R(7))/(720.0_8*H)
+    R1D(2)=(-120.0_8*R(1)-924.0_8*R(2)+1800.0_8*R(3)-1200.0_8*R(4) &
+            +600.0_8*R(5)-180.0_8*R(6)+24.0_8*R(7))/(720.0_8*H)
+    R1D(3)=(24.0_8*R(1)-288.0_8*R(2)-420.0_8*R(3)+960.0_8*R(4) &
+            -360.0_8*R(5)+96.0_8*R(6)-12.0_8*R(7))/(720.0_8*H)
+    R1D(4)=(-12.0_8*R(1)+108.0_8*R(2)-540.0_8*R(3) &
+           +540.0_8*R(5)-108.0_8*R(6)+12.0_8*R(7))/(720.0_8*H)
+    R1D(RG-3)=(-12.0_8*R(RG-6)+108.0_8*R(RG-5)-540.0_8*R(RG-4) &
+              +540.0_8*R(RG-2)-108.0_8*R(RG-1)+12.0_8*R(RG))/(720.0_8*H)
+    R1D(RG-2)=(-12.0_8*R(RG-5)+108.0_8*R(RG-4)-540.0_8*R(RG-3) &
+              +540.0_8*R(RG-1)-108.0_8*R(RG))/(720.0_8*H)
+    R1D(RG-1)=(+12.0_8*R(RG-5)-96.0_8*R(RG-4)+360.0_8*R(RG-3)-960.0_8*R(RG-2) &
+              +420.0_8*R(RG-1)+288.0_8*R(RG))/(720.0_8*H)
+    R1D(RG)=(-24.0_8*R(RG-5)+180.0_8*R(RG-4)-600.0_8*R(RG-3)+1200.0_8*R(RG-2) &
+             -1800.0_8*R(RG-1)+924.0_8*R(RG))/(720.0_8*H)
+    DO I=5,RG-4
+     R1D(I)=(+144.0_8*R(I-4)-1536.0_8*R(I-3)+8064.0_8*R(I-2)-32256.0_8*R(I-1) &
+            +32256.0_8*R(I+1)-8064.0_8*R(I+2)+1536.0_8*R(I+3)-144.0_8*R(I+4))/(40320.0_8*H)
+    ENDDO
+
+   ! SECOND DERIVATIVES
+    R2D(1)=(1624.0_8*R(1)-6264.0_8*R(2)+10530.0_8*R(3)-10160.0_8*R(4) &
+            +5940.0_8*R(5)-1944.0_8*R(6)+274.0_8*R(7))/(360.0_8*H**2)
+    R2D(2)=(274.0_8*R(1)-294.0_8*R(2)-510.0_8*R(3)+940.0_8*R(4) &
+            -570.0_8*R(5)+186.0_8*R(6)-26.0_8*R(7))/(360.0_8*H**2)
+    R2D(3)=(-26.0_8*R(1)+456.0_8*R(2)-840.0_8*R(3)+400.0_8*R(4) &
+            +30.0_8*R(5)-24.0_8*R(6)+4.0_8*R(7))/(360.0_8*H**2)
+    R2D(4)=(4.0_8*R(1)-54.0_8*R(2)+540.0_8*R(3)-980.0_8*R(4) &
+            +540.0_8*R(5)-54.0_8*R(6)+4.0_8*R(7))/(360.0_8*H**2)
+    R2D(RG-3)=(4.0_8*R(RG-6)-54.0_8*R(RG-5)+540.0_8*R(RG-4)-980.0_8*R(RG-3) &
+              +540.0_8*R(RG-2)-54.0_8*R(RG-1)+4.0_8*R(RG))/(360.0_8*H**2)
+    R2D(RG-2)=(+4.0_8*R(RG-5)-54.0_8*R(RG-4)  +540.0_8*R(RG-3)-980.0_8*R(RG-2) &
+              +540.0_8*R(RG-1)-54.0_8*R(RG))/(360.0_8*H**2)
+    R2D(RG-1)=(+4.0_8*R(RG-5)-24.0_8*R(RG-4)   +30.0_8*R(RG-3)+400.0_8*R(RG-2) &
+              -840.0_8*R(RG-1)+456.0_8*R(RG))/(360.0_8*H**2)
+    R2D(RG)=(-26.0_8*R(RG-5)+186.0_8*R(RG-4)  -570.0_8*R(RG-3)+940.0_8*R(RG-2) &
+             -510.0_8*R(RG-1)-294.0_8*R(RG))/(360.0_8*H**2)
+    DO I=5,RG-4
+     R2D(I)=(-36.0_8*R(I-4) +512.0_8*R(I-3)-4032.0_8*R(I-2)+32256.0_8*R(I-1)-57400.0_8*R(I) &
+             +32256.0_8*R(I+1)-4032.0_8*R(I+2)+512.0_8*R(I+3)-36.0_8*R(I+4))/(20160.0_8*H**2)
+    ENDDO
+
+
+   R0=BSRADI(IA)
+   DO I=1,RG
+     OMEGA=DFLOAT(I)*PI/DFLOAT(RG+1)
+     X=DCOS(OMEGA)
+     !R(I)=+R1D(I)*((1.0_8-X)**3/(2.0_8*R0**2*DSIN(OMEGA)) &
+     !     -(1.0_8-X)**4*DCOS(OMEGA)/(4.0_8*R0**2*DSIN(OMEGA)**3)) &
+     !     +R2D(I)*((1.0_8-X)**2/(2.0_8*R0*DSIN(OMEGA)))**2
+     R(I)=+R1D(I)*( (1.0_8-X)*(1.0_8-X)*(1.0_8-X) /(2.0_8*R0*R0*DSIN(OMEGA)) &
+          -(1.0_8-X)*(1.0_8-X)*(1.0_8-X)*(1.0_8-X)*DCOS(OMEGA)/(4.0_8*R0*R0*DSIN(OMEGA)*DSIN(OMEGA)*DSIN(OMEGA))) &
+          +((1.0_8-X)*(1.0_8-X)*(1.0_8-X)*(1.0_8-X)/(4.0_8*R0*R0*DSIN(OMEGA)*DSIN(OMEGA))) * R2D(I)
+   ENDDO
 
    CALL DESTROY_RGRID
 
@@ -209,12 +290,13 @@ SUBROUTINE CONSTRUCT_RGRID(NRAD, IA)
 
     DO J=1,RG
         X=DCOS(DFLOAT(J)*PI/DFLOAT(RG+1))
-        SG_GAUSS_CHEV(J)=R1*(1.0D0+X)/(1.0D0-X)
-        SG_GAUSS_CHEV_W(J)=2.0D0*R1/(1.0D0-X)**2*PI/DFLOAT(RG+1)*DSIN(DFLOAT(J)*PI/DFLOAT(RG+1))*SG_GAUSS_CHEV(J)**2
+        SG_GAUSS_CHEV(J)=R1*(1.0_8+X)/(1.0_8-X)
+        SG_GAUSS_CHEV_W(J)=2.0_8*R1/(1.0_8-X)**2*PI/DFLOAT(RG+1)*DSIN(DFLOAT(J)*PI/DFLOAT(RG+1))*SG_GAUSS_CHEV(J)**2
     ENDDO
 
 
 END SUBROUTINE
+
 
 SUBROUTINE DESTROY_RGRID
 

@@ -7,6 +7,7 @@
 // Note : this lapack subroutine destroys matrix A !!!
 extern "C" void dgesv_(int *N, int *NRHS, double *A, int *LDA, int *IPIV, double *B, int *LDB, int *INFO );
 extern "C" void second_deriv2_(double *R, int *IA, int *NRAD);
+extern "C" void second_deriv2_debug_(double *R, int *IA, int *NRAD, double *DD1, double *DD2);
 
 Poisson_solver::Poisson_solver(std::map<string, int> &p) : g(p), ss(g.L_max) {
 
@@ -177,6 +178,91 @@ void Poisson_solver::potential(std::vector<double> &el_pot_re, std::vector<doubl
     }
 }
 
+void Poisson_solver::second_deriv_debug(double *f, double *dd1, double *dd2) {
+
+	// Note: this subroutine is different from the one used in the Laplacian 
+	// class as it implements the calculation of the radial second derivative; not the actual 
+	// Laplcian
+	// Finite-difference formulas were taken from Polymer and are due to So Hirata
+
+    size_t &N_G = g.nrad;
+    double h = M_PI/(N_G + 1), h2 = gsl_pow_2(h);
+     
+
+
+    dd1[0] = (-1764.*f[0]+4320.*f[1]-5400.*f[2]+4800.*f[3]-2700.*f[4]+864.*f[5]-120.*f[6])/(720.*h);
+    //R1D(1)=(-1764.0D0*R(1)+4320.0D0*R(2)-5400.0D0*R(3)+4800.0D0*R(4) -2700.0D0*R(5)+864.0D0*R(6)-120.0D0*R(7))/(720.0D0*H)
+
+    dd1[1] = (-120.*f[0]-924.*f[1]+1800.*f[2]-1200.*f[3]+600.*f[4]-180.*f[5]+24.*f[6])/(720.*h);
+    //R1D(2)=(-120.0D0*R(1)-924.0D0*R(2)+1800.0D0*R(3)-1200.0D0*R(4) +600.0D0*R(5)-180.0D0*R(6)+24.0D0*R(7))/(720.0D0*H)
+
+    dd1[2] = (24.*f[0]-288.*f[1]-420.*f[2]+960.*f[3]-360.*f[4]+96.*f[5]-12.*f[6])/(720.*h);
+    //R1D(3)=(24.0D0*R(1)-288.0D0*R(2)-420.0D0*R(3)+960.0D0*R(4) -360.0D0*R(5)+96.0D0*R(6)-12.0D0*R(7))/(720.0D0*H)
+
+    dd1[3] = (-12.*f[0]+108.*f[1]-540.*f[2]+540.*f[4]-108.*f[5]+12.*f[6]) / (720.*h);
+    //R1D(4)=(-12.0D0*R(1)+108.0D0*R(2)-540.0D0*R(3) +540.0D0*R(5)-108.0D0*R(6)+12.0D0*R(7))/(720.0D0*H)
+
+
+    dd1[N_G - 4] = (-12.*f[N_G-7]+108.*f[N_G-6]-540.*f[N_G-5]+540.*f[N_G-3]-108.*f[N_G-2]+12.*f[N_G-1]) / (720.*h);
+    //R1D(RG-3)=(-12.0D0*R(RG-6)+108.0D0*R(RG-5)-540.0D0*R(RG-4) +540.0D0*R(RG-2)-108.0D0*R(RG-1)+12.0D0*R(RG))/(720.0D0*H)
+
+    dd1[N_G - 3] = (-12.*f[N_G-6] +108.*f[N_G-5] -540.*f[N_G-4]   +540.*f[N_G-2]  -108.*f[N_G-1]) / (720.*h);
+    //R1D(RG-2)=(-12.0D0*R(RG-5)+108.0D0*R(RG-4)-540.0D0*R(RG-3) +540.0D0*R(RG-1)-108.0D0*R(RG))/(720.0D0*H)
+
+    dd1[N_G - 2] = (12.*f[N_G-6] -96.*f[N_G-5] +360.*f[N_G-4]-960.*f[N_G-3] +420.*f[N_G-2] +288.*f[N_G-1]) / (720.*h);
+    //R1D(RG-1)=(+12.0D0*R(RG-5)-96.0D0*R(RG-4)+360.0D0*R(RG-3)-960.0D0*R(RG-2) +420.0D0*R(RG-1)+288.0D0*R(RG))/(720.0D0*H)
+
+    dd1[N_G - 1] = (-24.*f[N_G-6]+180.*f[N_G-5]-600.*f[N_G-4] +1200.*f[N_G-3]-1800.*f[N_G-2]+924.*f[N_G-1]) / (720.*h);
+    //R1D(RG)=(-24.0D0*R(RG-5)+180.0D0*R(RG-4)-600.0D0*R(RG-3)+1200.0D0*R(RG-2) -1800.0D0*R(RG-1)+924.0D0*R(RG))/(720.0D0*H)
+	
+
+    
+    dd2[0] = (1624.*f[0]-6264.*f[1]+10530.*f[2]-10160.*f[3]+5940.*f[4]-1944.*f[5]+274.*f[6]) / (360.*h2);
+    //R2D(1)=(1624.0D0*R(1)-6264.0D0*R(2)+10530.0D0*R(3)-10160.0D0*R(4)+5940.0D0*R(5)-1944.0D0*R(6)+274.0D0*R(7))/(360.0D0*H**2)
+    dd2[1] = (274.*f[0]-294.*f[1]-510.*f[2]+940.*f[3]-570.*f[4]+186.*f[5]-26.*f[6]) / (360.*h2);
+    //R2D(2)=(274.0D0*R(1)-294.0D0*R(2)-510.0D0*R(3)+940.0D0*R(4)-570.0D0*R(5)+186.0D0*R(6)-26.0D0*R(7))/(360.0D0*H**2)
+    dd2[2] = (-26.*f[0]+456.*f[1]-840.*f[2]+400.*f[3]+30.*f[4]-24.*f[5]+4.*f[6]) / (360.*h2);
+    //R2D(3)=(-26.0D0*R(1)+456.0D0*R(2)-840.0D0*R(3)+400.0D0*R(4)+30.0D0*R(5)-24.0D0*R(6)+4.0D0*R(7))/(360.0D0*H**2)
+    dd2[3] = (4.*f[0]-54.*f[1]+540.*f[2]-980.*f[3]+540.*f[4]-54.*f[5]+4.*f[6]) / (360.*h2);
+    //R2D(4)=(4.0D0*R(1)-54.0D0*R(2)+540.0D0*R(3)-980.0D0*R(4)+540.0D0*R(5)-54.0D0*R(6)+4.0D0*R(7))/(360.0D0*H**2)
+
+    
+    dd2[N_G - 4] = (4.*f[N_G-7]-54.*f[N_G-6]+540.*f[N_G-5]-980.*f[N_G-4]+540.*f[N_G-3]-54.*f[N_G-2]+4.*f[N_G-1]) / (360.*h2);
+    //R2D(RG-3)=(4.0D0*R(RG-6)-54.0D0*R(RG-5)+540.0D0*R(RG-4)-980.0D0*R(RG-3)+540.0D0*R(RG-2)-54.0D0*R(RG-1)+4.0D0*R(RG))/(360.0D0*H**2)
+    dd2[N_G - 3] = ( 4.*f[N_G-6]-54.*f[N_G-5]+540.*f[N_G-4]-980.*f[N_G-3]+540.*f[N_G-2]-54.*f[N_G-1]) / (360.*h2);
+    //R2D(RG-2)=(+4.0D0*R(RG-5)-54.0D0*R(RG-4)  +540.0D0*R(RG-3)-980.0D0*R(RG-2)+540.0D0*R(RG-1)-54.0D0*R(RG))/(360.0D0*H**2)
+    dd2[N_G - 2] = (+4.*f[N_G-6]-24.*f[N_G-5]  +30.*f[N_G-4]+400.*f[N_G-3]-840.*f[N_G-2]+456.*f[N_G-1]) / (360.*h2);
+    //R2D(RG-1)=(+4.0D0*R(RG-5)-24.0D0*R(RG-4)   +30.0D0*R(RG-3)+400.0D0*R(RG-2)-840.0D0*R(RG-1)+456.0D0*R(RG))/(360.0D0*H**2)
+    dd2[N_G - 1] = (-26.*f[N_G-6]+186.*f[N_G-5] -570.*f[N_G-4] +940.*f[N_G-3]  -510.*f[N_G-2]-294.*f[N_G-1]) / (360.*h2);
+    //R2D(RG)=(-26.0D0*R(RG-5)+186.0D0*R(RG-4)  -570.0D0*R(RG-3)+940.0D0*R(RG-2)-510.0D0*R(RG-1)-294.0D0*R(RG))/(360.0D0*H**2)
+
+    for (size_t i = 4; i < N_G - 4; i++) {
+        dd1[i] = (+144.*f[i-4]-1536.*f[i-3]+8064.*f[i-2]-32256.*f[i-1]+32256.*f[i+1]-8064.*f[i+2]+1536.*f[i+3]-144.*f[i+4])/(40320.*h);
+        //R1D(I)=(+144.0D0*R(I-4)-1536.0D0*R(I-3)+8064.0D0*R(I-2)-32256.0D0*R(I-1) +32256.0D0*R(I+1)-8064.0D0*R(I+2)+1536.0D0*R(I+3)-144.0D0*R(I+4))/(40320.0D0*H)
+        dd2[i] = (-36.*f[i-4]+512.*f[i-3]-4032.*f[i-2]+32256.*f[i-1]-57400.*f[i]+32256.*f[i+1]-4032.*f[i+2]+512.*f[i+3]-36.*f[i+4])/(20160.*h2);
+        //R2D(I)=(-36.0D0*R(I-4) +512.0D0*R(I-3)-4032.0D0*R(I-2)+32256.0D0*R(I-1)-57400.0D0*R(I)+32256.0D0*R(I+1)-4032.0D0*R(I+2)+512.0D0*R(I+3)-36.0D0*R(I+4))/(20160.0D0*H**2)
+    }
+
+
+    for (size_t i = 0; i < N_G; i++) {
+        double z = 3.14159265358979 / (N_G + 1) * (i + 1);
+        //double fac2 = gsl_pow_2(cos(z) - 1.0), fac4 = gsl_pow_4(cos(z) - 1.0);
+        //double fac3 = gsl_pow_3(1 - cos(z));
+        double fac2 = (cos(z) - 1.0)*(cos(z) - 1.0), fac4 = fac2 * fac2;
+        double fac3 = (1.0 - cos(z)) * fac2;
+		//f[i] = dd1[i] * (fac3/(2.0*g.r_at*g.r_at*sin(z)) - fac4*cos(z)/(4.0*g.r_at*g.r_at*sin(z)*sin(z)*sin(z)));
+        //f[i] = fac4*(cos(z) + 2)/(4*gsl_pow_2(g.r_at)*gsl_pow_3(sin(z))) * d1[i];
+        //f[i] += fac4 / (4*gsl_pow_2(g.r_at)*gsl_pow_2(sin(z))) * dd2[i];
+        //f[i] += fac4 / (4*(g.r_at*sin(z))*(g.r_at*sin(z))) * dd2[i];
+        //f[i] = fac4 / (4*(g.r_at*sin(z))*(g.r_at*sin(z))) * dd2[i];
+        //R(I)=+R1D(I)*((1.0D0-X)**3/(2.0D0*R0**2*DSIN(OMEGA)) - (1.0D0-X)**4*DCOS(OMEGA)/(4.0D0*R0**2*DSIN(OMEGA)**3)) +R2D(I)*((1.0D0-X)**2/(2.0D0*R0*DSIN(OMEGA)))**2
+		f[i] = dd1[i] * ((1.0 - cos(z)) * (1.0 - cos(z)) * (1.0 - cos(z))/(2.0*g.r_at*g.r_at*sin(z)) 
+				-(1.0 - cos(z))*(1.0 - cos(z))*(1.0 - cos(z))*(1.0 - cos(z))*cos(z)/(4.0*g.r_at*g.r_at*sin(z)*sin(z)*sin(z))) 
+			    +(1.0 - cos(z))*(1.0 - cos(z))*(1.0 - cos(z))*(1.0 - cos(z)) / (4*(g.r_at*sin(z))*(g.r_at*sin(z))) * dd2[i];
+    }
+
+}
+
 void Poisson_solver::second_deriv(double *f) {
 
 	// Note: this subroutine is different from the one used in the Laplacian 
@@ -242,6 +328,8 @@ void Poisson_solver::second_deriv(double *f) {
         //R2D(I)=(-36.0D0*R(I-4) +512.0D0*R(I-3)-4032.0D0*R(I-2)+32256.0D0*R(I-1)-57400.0D0*R(I)+32256.0D0*R(I+1)-4032.0D0*R(I+2)+512.0D0*R(I+3)-36.0D0*R(I+4))/(20160.0D0*H**2)
     }
 
+	/*
+
 	std::cout << " Printing d arrays before calculating derivatives " << std::endl;
 	std::cout << " D1: " << std::endl;
 
@@ -258,6 +346,7 @@ void Poisson_solver::second_deriv(double *f) {
 	}
 
 	std::cout << std::endl;
+	*/
 
     for (size_t i = 0; i < N_G; i++) {
         double z = M_PI / (N_G + 1) * (i + 1);
@@ -571,4 +660,206 @@ std::tuple<double, double> Poisson_solver::calc_eri(const LM &o1, const LM &o2, 
 	return make_tuple(eri_re, eri_im);
 }
 
+void Poisson_solver::test_second_deriv() {
+	// This method compares the intermediate quantities involved in the second derivative calculation 
+	// (as implemented in the second_deriv method of the Poisson_solver class) with thier conterparts 
+	// from the Polymer code; debug versions of the subroutines will be used;
 
+
+	// Perform tests for hydrogen atom states first
+	std::vector<double> psi1(g.nrad, 0.0), psi2(g.nrad, 0.0), psi3(g.nrad, 0.0);
+	std::vector<double> tmp1(g.nrad, 0.0), tmp2(g.nrad, 0.0), tmp1_(g.nrad, 0.0), tmp2_(g.nrad, 0.0);
+	std::vector<double> lpsi1_f(g.nrad), lpsi2_f(g.nrad), lpsi3_f(g.nrad);
+	std::vector<double> lpsi1_c(g.nrad), lpsi2_c(g.nrad), lpsi3_c(g.nrad);
+
+	std::copy(g.r.begin(), g.r.end(), psi1.begin());
+	std::copy(g.r.begin(), g.r.end(), psi2.begin());
+	std::copy(g.r.begin(), g.r.end(), psi3.begin());
+
+	std::transform(psi1.begin(), psi1.end(), psi1.begin(), psi_1s_H);
+	std::transform(psi2.begin(), psi2.end(), psi2.begin(), psi_2s_H);
+	std::transform(psi3.begin(), psi3.end(), psi3.begin(), psi_3s_H);
+
+	std::copy(psi1.begin(), psi1.end(), lpsi1_f.begin());
+	std::copy(psi2.begin(), psi2.end(), lpsi2_f.begin());
+	std::copy(psi3.begin(), psi3.end(), lpsi3_f.begin());
+
+	std::copy(psi1.begin(), psi1.end(), lpsi1_c.begin());
+	std::copy(psi2.begin(), psi2.end(), lpsi2_c.begin());
+	std::copy(psi3.begin(), psi3.end(), lpsi3_c.begin());
+
+	// Apply second derivative (debug version) from Poisson_solver
+	
+	int nrad = g.nrad, iatom = 2;
+	
+	second_deriv_debug(lpsi1_c.data(), tmp1.data(), tmp2.data());
+	second_deriv2_debug_(lpsi1_f.data(), &iatom, &nrad, tmp1_.data(), tmp2_.data());
+
+	{
+		double max_err = 0.0, max_err1 = 0.0, max_err2 = 0.0;
+		for (size_t i = 0; i < g.nrad; i++) {
+			max_err = std::max(max_err, std::abs(lpsi1_f[i] - lpsi1_c[i]));
+			max_err1 = std::max(max_err1, std::abs(tmp1[i] - tmp1_[i]));
+			max_err2 = std::max(max_err2, std::abs(tmp2[i] - tmp2_[i]));
+		}
+
+		// Print summary 
+
+		printf(" max derivative error is %18.10f \n", max_err);
+		printf(" d1 max error is %18.10f \n", max_err1);
+		printf(" d2 max error is %18.10f \n", max_err2);
+	}
+
+	std::fill (tmp1.begin(), tmp1.end(), 0.0);
+	std::fill (tmp1_.begin(), tmp1_.end(), 0.0);
+	std::fill (tmp2.begin(), tmp2.end(), 0.0);
+	std::fill (tmp2_.begin(), tmp2_.end(), 0.0);
+
+	second_deriv_debug(lpsi2_c.data(), tmp1.data(), tmp2.data());
+	second_deriv2_debug_(lpsi2_f.data(), &iatom, &nrad, tmp1_.data(), tmp2_.data());
+
+	{
+		double max_err = 0.0, max_err1 = 0.0, max_err2 = 0.0;
+		for (size_t i = 0; i < g.nrad; i++) {
+			max_err = std::max(max_err, std::abs(lpsi1_f[i] - lpsi1_c[i]));
+			max_err1 = std::max(max_err1, std::abs(tmp1[i] - tmp1_[i]));
+			max_err2 = std::max(max_err2, std::abs(tmp2[i] - tmp2_[i]));
+		}
+
+		// Print summary 
+
+		printf(" max derivative error is %18.10f \n", max_err);
+		printf(" d1 max error is %18.10f \n", max_err1);
+		printf(" d2 max error is %18.10f \n", max_err2);
+	}
+
+	std::fill (tmp1.begin(), tmp1.end(), 0.0);
+	std::fill (tmp1_.begin(), tmp1_.end(), 0.0);
+	std::fill (tmp2.begin(), tmp2.end(), 0.0);
+	std::fill (tmp2_.begin(), tmp2_.end(), 0.0);
+
+	second_deriv_debug(lpsi3_c.data(), tmp1.data(), tmp2.data());
+	second_deriv2_debug_(lpsi3_f.data(), &iatom, &nrad, tmp1_.data(), tmp2_.data());
+
+	{
+		// The errors will be saved to file for the third test
+		
+		fstream err_file1, err_file2, err_file3;
+		err_file1.open("ERR1.DAT", ios::out);
+		err_file2.open("ERR2.DAT", ios::out);
+		err_file3.open("ERR3.DAT", ios::out);
+
+		assert( err_file1.is_open() && err_file2.is_open() && err_file3.is_open() );
+
+		double max_err = 0.0, max_err1 = 0.0, max_err2 = 0.0;
+		for (size_t i = 0; i < g.nrad; i++) {
+			max_err = std::max(max_err, std::abs(lpsi3_f[i] - lpsi3_c[i]));
+			max_err1 = std::max(max_err1, std::abs(tmp1[i] - tmp1_[i]));
+			max_err2 = std::max(max_err2, std::abs(tmp2[i] - tmp2_[i]));
+			err_file1 << i << " " << std::abs(tmp1[i] - tmp1_[i]) << std::endl;
+			err_file2 << i << " " << std::abs(tmp2[i] - tmp2_[i]) << std::endl;
+			err_file3 << i << " " << std::abs(lpsi3_f[i] - lpsi3_c[i]) << std::endl;
+		}
+
+		err_file1.close();
+		err_file2.close();
+		err_file3.close();
+
+		// Print summary 
+
+		printf(" max derivative error is %18.10f \n", max_err);
+		printf(" d1 max error is %18.10f \n", max_err1);
+		printf(" d2 max error is %18.10f \n", max_err2);
+	}
+
+}
+
+void Poisson_solver::test_second_deriv2() {
+
+	std::vector<double> psi1(g.nrad, 0.0), psi2(g.nrad, 0.0), psi3(g.nrad, 0.0);
+	std::vector<double> tmp1(g.nrad, 0.0), tmp2(g.nrad, 0.0), tmp1_(g.nrad, 0.0), tmp2_(g.nrad, 0.0);
+
+	std::copy(g.r.begin(), g.r.end(), psi1.begin());
+	std::copy(g.r.begin(), g.r.end(), psi2.begin());
+	std::copy(g.r.begin(), g.r.end(), psi3.begin());
+
+	std::transform(psi1.begin(), psi1.end(), psi1.begin(), psi_1s_H);
+	std::transform(psi2.begin(), psi2.end(), psi2.begin(), psi_2s_H);
+	std::transform(psi3.begin(), psi3.end(), psi3.begin(), psi_3s_H);
+
+	std::vector<double> lpsi1_c(g.nrad), lpsi2_c(g.nrad), lpsi3_c(g.nrad);
+
+	std::copy(psi1.begin(), psi1.end(), lpsi1_c.begin());
+	std::copy(psi2.begin(), psi2.end(), lpsi2_c.begin());
+	std::copy(psi3.begin(), psi3.end(), lpsi3_c.begin());
+
+	second_deriv(psi1.data());
+	second_deriv(psi2.data());
+	second_deriv(psi3.data());
+	second_deriv_debug(lpsi1_c.data(), tmp1.data(), tmp2.data());
+	second_deriv_debug(lpsi2_c.data(), tmp1.data(), tmp2.data());
+	second_deriv_debug(lpsi3_c.data(), tmp1.data(), tmp2.data());
+
+	// Comparing two subroutines from the Poisson_solver class
+
+	{
+		double max_err = 0.0, max_err1 = 0.0, max_err2 = 0.0;
+		for (size_t i = 0; i < g.nrad; i++) {
+			max_err = std::max(max_err, std::abs(lpsi1_c[i] - psi1[i]));
+			max_err1 = std::max(max_err, std::abs(lpsi2_c[i] - psi2[i]));
+			max_err2 = std::max(max_err, std::abs(lpsi3_c[i] - psi3[i]));
+		}
+
+		// Print summary 
+		std::cout << std::scientific << max_err << " " << max_err1 << " " << max_err2 << std::endl;
+
+	}
+
+	// Comparing two fortran subroutines 
+
+}
+
+void Poisson_solver::test_second_deriv3() {
+
+	std::vector<double> psi1(g.nrad, 0.0), psi2(g.nrad, 0.0), psi3(g.nrad, 0.0);
+	std::vector<double> tmp1(g.nrad, 0.0), tmp2(g.nrad, 0.0), tmp1_(g.nrad, 0.0), tmp2_(g.nrad, 0.0);
+
+	std::copy(g.r.begin(), g.r.end(), psi1.begin());
+	std::copy(g.r.begin(), g.r.end(), psi2.begin());
+	std::copy(g.r.begin(), g.r.end(), psi3.begin());
+
+	std::transform(psi1.begin(), psi1.end(), psi1.begin(), psi_1s_H);
+	std::transform(psi2.begin(), psi2.end(), psi2.begin(), psi_2s_H);
+	std::transform(psi3.begin(), psi3.end(), psi3.begin(), psi_3s_H);
+
+	std::vector<double> lpsi1_f(g.nrad), lpsi2_f(g.nrad), lpsi3_f(g.nrad);
+
+	std::copy(psi1.begin(), psi1.end(), lpsi1_f.begin());
+	std::copy(psi2.begin(), psi2.end(), lpsi2_f.begin());
+	std::copy(psi3.begin(), psi3.end(), lpsi3_f.begin());
+
+	int iatom = 2, nrad = g.nrad;
+
+	second_deriv2_(psi1.data(), &iatom, &nrad);
+	second_deriv2_(psi2.data(), &iatom, &nrad);
+	second_deriv2_(psi3.data(), &iatom, &nrad);
+	second_deriv2_debug_(lpsi1_f.data(), &iatom, &nrad, tmp1.data(), tmp2.data());
+	second_deriv2_debug_(lpsi2_f.data(), &iatom, &nrad, tmp1.data(), tmp2.data());
+	second_deriv2_debug_(lpsi3_f.data(), &iatom, &nrad, tmp1.data(), tmp2.data());
+
+	// Comparing two subroutines from the Poisson_solver class
+
+	{
+		double max_err = 0.0, max_err1 = 0.0, max_err2 = 0.0;
+		for (size_t i = 0; i < g.nrad; i++) {
+			max_err = std::max(max_err, std::abs(lpsi1_f[i] - psi1[i]));
+			max_err1 = std::max(max_err, std::abs(lpsi2_f[i] - psi2[i]));
+			max_err2 = std::max(max_err, std::abs(lpsi3_f[i] - psi3[i]));
+		}
+
+		// Print summary 
+		std::cout << std::scientific << max_err << " " << max_err1 << " " << max_err2 << std::endl;
+
+	}
+
+}

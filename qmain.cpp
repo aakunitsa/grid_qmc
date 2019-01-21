@@ -30,14 +30,17 @@ int main(int argc, char **argv) {
     */
     Becke_grid g(q.params);
     g.test_grid();
-    Laplacian l(q.params);
-    l.test_laplacian();
-    Coulomb R12(q.params);
-    R12.test_coulomb();
+    //Laplacian l(q.params);
+    //l.test_laplacian();
+    //Coulomb R12(q.params);
+    //R12.test_coulomb();
 	Poisson_solver qp(q.params);
 	//qp.test_poisson();
-	qp.test_stencil();
+	//qp.test_stencil();
 	//qp.test_against_poly();
+	qp.test_second_deriv();
+	qp.test_second_deriv2();
+	qp.test_second_deriv3();
 
 	//std::cout << " Comparing Poisson solver results to Coulomb operator evaluation function " << std::endl;
 
