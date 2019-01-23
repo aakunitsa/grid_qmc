@@ -9,3 +9,8 @@ Grid-based stochastic and deterministic electronic structure methods.
 
 # TODO list (stochastic):
 1. FCIQMC in real space using mixed grid-orbital representation
+
+# Authors 
+
+Alexander A. Kunitsa (UIUC)
+So Hirata            (UIUC)
