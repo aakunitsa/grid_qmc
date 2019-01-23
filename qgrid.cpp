@@ -9,6 +9,7 @@
 #include <gsl/gsl_math.h>
 #include <gsl/gsl_cblas.h>
 #include <gsl/gsl_sf_coupling.h>
+#include "poisson_fortran.h"
 
 void print_vector(std::vector<double> &&v) {
     for (auto &e : v ) 
@@ -500,6 +501,107 @@ void Coulomb::test_coulomb() {
 
     std::cout << "Coulomb operator evaluation function passed all the tests!" << std::endl;
 
+}
+
+void Coulomb::test_against_poisson() {
+
+	size_t num_tests = 50;
+
+	std::cout << " Comparing Poisson solver results to Coulomb operator evaluation function " << std::endl;
+	std::cout << num_tests << " tests will be performed. " << std::endl;
+
+	// Initialize Poisson solver (in Fortran)
+	int nrad = g.nrad, nang = g.nang, iat = 2;
+	initialize_poisson_(&nrad, &nang, &iat); // FORTRAN subroutine call
+	
+
+	// Create an orbital set with L_max = 1
+	
+    	
+	ShellSet st(1);
+	assert ( g.L_max >= 1);
+
+	default_random_engine gen;
+	uniform_int_distribution<int> u(0, 3);
+
+	std::vector<double> rho_re(nrad * nang, 0.0), rho_im(nrad * nang, 0.0), pot_re ( nrad * nang, 0.0), pot_im(nrad * nang, 0.0); 
+
+	double max_err = 0.0, max_dev = 0.0;
+
+	for (size_t i = 0; i < num_tests; i++) {
+		auto o1 = st.aorb[u(gen)];
+		auto o2 = st.aorb[u(gen)];
+		auto o3 = st.aorb[u(gen)];
+		auto o4 = st.aorb[u(gen)];
+		std::cout << " Test # " << i << std::endl;
+
+		double eri_coulomb = calc_eri(o1, o2, o3, o4);
+		printf("(%d%d | %d%d ) = %18.10f (Laplace) \n", st.orb_id(o1), st.orb_id(o2), st.orb_id(o3), st.orb_id(o4), eri_coulomb );
+		// Calculate the same thing using Poisson solver 
+		// 1. calculate densities for the first orbiral pair
+		std::fill (rho_re.begin(), rho_re.end(), 0.0);
+		std::fill (rho_im.begin(), rho_im.end(), 0.0);
+		int &L1 = o1.L, &L2 = o2.L, 
+		    &M1 = o1.M, &M2 = o2.M;	
+		for (size_t ir = 0; ir < g.nrad; ir++) {
+		    double rho_rad = exp(-g.r[ir] * g.r[ir]); 
+			for ( size_t ia = 0; ia < g.nang; ia++) {
+				auto [th, p] = g.thetaphi_ang[ia];
+				auto [r1, i1] = Y(L1, M1, th, p);
+				auto [r2, i2] = Y(L2, M2, th, p);
+			    rho_re[ir * g.nang + ia] = rho_rad * (r1 * r2 + i1 * i2);
+			    rho_im[ir * g.nang + ia] = rho_rad * (r1 * i2 - i1 * r2);
+			}
+		}
+		// 2. generate real and imaginary parts of the potential
+		construct_potential_(rho_re.data(), pot_re.data());
+		construct_potential_(rho_im.data(), pot_im.data());
+		// 3. calculate densities for the second orbital pair
+		std::fill (rho_re.begin(), rho_re.end(), 0.0);
+		std::fill (rho_im.begin(), rho_im.end(), 0.0);
+		int &L3 = o3.L, &L4 = o4.L, 
+		    &M3 = o3.M, &M4 = o4.M;	
+		for (size_t ir = 0; ir < g.nrad; ir++) {
+		    double rho_rad = exp(-g.r[ir] * g.r[ir]); 
+			for ( size_t ia = 0; ia < g.nang; ia++) {
+				auto [th, p] = g.thetaphi_ang[ia];
+				auto [r3, i3] = Y(L3, M3, th, p);
+				auto [r4, i4] = Y(L4, M4, th, p);
+			    rho_re[ir * g.nang + ia] = rho_rad * (r3 * r4 + i3 * i4);
+			    rho_im[ir * g.nang + ia] = rho_rad * (r3 * i4 - i3 * r4);
+			}
+		}
+		// 4. contract densities and the potential to obtain the value of the eri
+		double eri_re = 0.0, eri_im = 0.0;
+
+		for (size_t ir = 0; ir < g.nrad; ir++) {
+			for (size_t ia = 0; ia < g.nang; ia++) {
+				eri_re += (rho_re[ir * g.nang + ia] * pot_re[ir * g.nang + ia] - rho_im[ir * g.nang + ia] * pot_im[ir * g.nang + ia]) * g.gridw_r[ir] * g.gridw_a[ia] * 4. * M_PI;
+				eri_im += (rho_re[ir * g.nang + ia] * pot_im[ir * g.nang + ia] + rho_im[ir * g.nang + ia] * pot_re[ir * g.nang + ia]) * g.gridw_r[ir] * g.gridw_a[ia] * 4. * M_PI;
+			}
+		}
+
+
+		printf("(%d%d | %d%d ) = %18.10f + i * %18.10f (Poisson) \n", st.orb_id(o1), st.orb_id(o2), st.orb_id(o3), st.orb_id(o4), eri_re, eri_im);
+
+		max_err = std::max(max_err, std::abs(eri_re - eri_coulomb));
+		max_dev = std::max(max_dev, eri_im);
+
+		std::cout << " Legend: " << std::endl;
+		printf("L1, M1 = %d, %d\n", o1.L, o1.M);
+		printf("L2, M2 = %d, %d\n", o2.L, o2.M);
+		printf("L3, M3 = %d, %d\n", o3.L, o3.M);
+		printf("L4, M4 = %d, %d\n", o4.L, o4.M);
+		std::cout << " End of test # " << i << std::endl;
+
+	}
+
+	finalize_poisson_(); // FORTRAN subroutine call
+
+	std::cout << " Concluded Coulomb operator testing " << std::endl;
+	std::cout << " Maximum error was " << std::scientific << max_err << std::endl;
+	std::cout << " Maximum deviation of the imaginary parts from zero " << std::scientific << max_dev << std::endl;
+	
 }
 
 double Coulomb::calc_eri(LM &o1, LM &o2, LM &o3, LM &o4) {

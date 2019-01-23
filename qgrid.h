@@ -52,6 +52,7 @@ class Coulomb {
         double eval_simple_wo_selection(double &r1, double &r2, LM &lm1, LM &lm2, LM &lm3, LM &lm4); // Same but coupling is evaluated without using selection rules for l and m; 
                                                                                                // Therefore, the sum runs over both l and m
         void test_coulomb(); // Check if coupling evaluation is consistent across the eval functions; Later coulomb operator implementation will also be test with Poisson solver
+		void test_against_poisson();
         double calc_eri(LM &o1, LM &o2, LM &o3, LM &o4);
 
     private:
