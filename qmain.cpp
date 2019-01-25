@@ -5,16 +5,22 @@
 #include "qrandom_seed.h"
 #include "qparams_reader.h"
 #include "qmethods.h"
+#include "qhamiltonian.h"
 #include "qsystem.h"
 #include "qgrid.h"
 #include "qpoisson.h"
 #include <iostream>
+#include <algorithm>
 
 
 int main(int argc, char **argv) {
 
+	// Read the input file
+
     Params_reader q(argc, argv);
     q.perform();
+
+
     /*
     if (q.params["mult"] == 1) {
         auto He = Atom<2, 1>(q);
@@ -28,13 +34,15 @@ int main(int argc, char **argv) {
         //vmc_he.run_test();
     }
     */
-    Becke_grid g(q.params);
-    g.test_grid();
+	// Tests fo various components defined in qgrid.cpp/h
+	
+    //Becke_grid g(q.params);
+    //g.test_grid();
     //Laplacian l(q.params);
     //l.test_laplacian();
-    Coulomb R12(q.params);
+    //Coulomb R12(q.params);
     //R12.test_coulomb();
-	R12.test_against_poisson();
+	//R12.test_against_poisson();
 	//Poisson_solver qp(q.params);
 	//qp.test_poisson();
 	//qp.test_stencil();
@@ -43,6 +51,28 @@ int main(int argc, char **argv) {
 	//qp.test_second_deriv2();
 	//qp.test_second_deriv3();
     
+    // Tests of Hamiltonian and matrix element evaluation subroutines
+	
+	// Create a shellset first
+	
+	ShellSet ss(1);
+	Hamiltonian h1p(q.params, ss);
+	h1p.test1();
+	h1p.build_basis();
+
+	// Only run this for hydrogen atom for now
+	
+	if (q.params["electrons"] == 1) {
+		std::cout << " The hamiltonian will be diagonalized " << std::endl;
+		auto e = h1p.diag();
+		std::sort(e.begin(), e.end());
+
+	    std::cout << " Printing the first 10 eigenvalues of the hamiltonian " << std::endl;
+	    std::cout << std::scientific;
+
+		for (size_t i = 0; i < std::min(10, e.size()); i++) 
+			std::cout << e[i] << std::endl;
+	} 
 
 /*
     if (q.params["rng"] == 32) {
