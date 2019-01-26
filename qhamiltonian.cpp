@@ -19,6 +19,9 @@ Hamiltonian::Hamiltonian(std::map<string, int> &p, ShellSet &orb) : ss(orb), lp(
 	nel = p["electrons"];
 	size_t mult = p["mult"];
 
+	std::cout << " Number of electrons :" << nel <<  std::endl; 
+	std::cout << " Multiplicity :" << mult << std::endl; 
+
 	assert (nel > 0 && mult > 0);
 
 	// Make sure that the number of electrons is consisten with
@@ -39,6 +42,8 @@ Hamiltonian::Hamiltonian(std::map<string, int> &p, ShellSet &orb) : ss(orb), lp(
 	std::cout << "Based one the combination of charge/multiplicity from the input file: " << std::endl;
 	std::cout << "=> The number of alpha electrons is " << nalpha << std::endl;
 	std::cout << "=> The number of beta electrons is " << nbeta << std::endl;
+
+	assert ( nalpha + nbeta == nel ) ;
 
 }
 
@@ -64,7 +69,7 @@ void Hamiltonian::build_basis() {
     } 
     
     if (nbeta != 0) {
-        printf("The number of alpha electrons is %5d\n", nalpha);
+        printf("The number of beta electrons is %5d\n", nbeta);
         c = gsl_combination_calloc(n1porb, nbeta);
         do {
             size_t *c_ind = gsl_combination_data(c);
@@ -76,8 +81,8 @@ void Hamiltonian::build_basis() {
         printf("Generated %5d beta strings\n", beta_str.size());
 
     } 
-}
 
+}
 
 vector<double> Hamiltonian::diag() {
 
@@ -88,6 +93,8 @@ vector<double> Hamiltonian::diag() {
     gsl_matrix *eigvecs = gsl_matrix_calloc(n_bf, n_bf);
     gsl_vector *energies = gsl_vector_calloc(n_bf); // Just in case
 
+	std::cout << " The size of the N-electron basis set is " << n_bf << std::endl;
+
     printf("Building the matrix...\n");
 
     for (size_t i = 0; i < n_bf; i++) 
@@ -97,37 +104,24 @@ vector<double> Hamiltonian::diag() {
 			auto [ ia, ib ] = unpack_str_index(i);
 			auto [ ja, jb ] = unpack_str_index(j);
 
-			int spin_a = alpha_str[ia].size() - beta_str[ib].size();
-			int spin_b = alpha_str[ib].size() - beta_str[ib].size();
-
 			double Hij = 0.0;
 
-			if ( spin_a != spin_b ) {
-				// Hamiltonian is spin projection conserving
-				gsl_matrix_set(h_grid, i, j, Hij);
-				gsl_matrix_set(h_grid, j, i, Hij);
-			} else {
-				// Get references to the orbital strings
+			Hij += evaluate_kinetic(ia, ja, ALPHA);
+			Hij += evaluate_nuc(ia, ja, ALPHA);
+			if (beta_str.size() > 0)
+				Hij += evaluate_kinetic(ib, jb, BETA);
+				Hij += evaluate_nuc(ib, jb, BETA);
+			if (nel > 1) 
+				Hij += evaluate_coulomb(ia, ib, ja, jb);
 
-				auto &ia_s = alpha_str[ia], 
-					 &ib_s = beta_str[ib],
-					 &ja_s = alpha_str[ja],
-					 &jb_s = beta_str[jb];
 
-				Hij += evaluate_kinetic(ia, ja, ALPHA);
-				if (beta_str.size() > 0)
-					Hij += evaluate_kinetic(ib, jb, BETA);
-				if (nel > 1) 
-					Hij += evaluate_coulomb(ia, ib, ja, jb);
-
-				gsl_matrix_set(h_grid, i, j, Hij);
-				gsl_matrix_set(h_grid, j, i, Hij);
-			}
+			gsl_matrix_set(h_grid, i, j, Hij);
+			gsl_matrix_set(h_grid, j, i, Hij);
         }
 
     printf("Done!\n");
 
-#ifdef DEBUG_
+#ifdef DEBUG
     for (int i = 0; i < n_bf; i++) {
         for (int j = 0; j < n_bf; j++) {
             double el = gsl_matrix_get(h_grid, i, j);
@@ -223,6 +217,41 @@ double Hamiltonian::evaluate_kinetic(size_t is, size_t js, int type) {
 	}
 }
 
+
+double Hamiltonian::evaluate_nuc(size_t is, size_t js, int type) {
+
+	// Note that is and js as spin string indeces; We need to process them
+	// to obtain orbital index lists
+	//
+	
+	double result = 0.0;
+
+	if (is !=  js) return 0.;
+	
+	if (type == ALPHA) {
+		// for each orbital in the alpha/beta string 
+		// extract the radial point index
+
+		for (auto &i : alpha_str[is] ) {
+			size_t  ir = (i - i % ss.size()) / ss.size();
+			assert ( ir < g.nrad);
+			result += -1. / g.r[ir];
+		}
+
+
+	} else if (type  == BETA) {
+
+		for (auto &i : beta_str[is] ) {
+			size_t  ir = (i - i % ss.size()) / ss.size();
+			assert ( ir < g.nrad);
+			result += -1. / g.r[ir];
+		}
+
+	}
+
+	return result;
+}
+
 double Hamiltonian::evaluate_coulomb(size_t ia, size_t ib, size_t ja, size_t jb) {
 
 	auto &ia_s = alpha_str[ia], 
@@ -264,15 +293,17 @@ double Hamiltonian::ke(size_t i, size_t j) {
 
 	std::vector<double> V_ir (g.nrad, 0.0), V_jr (g.nrad, 0.0);
 	std::vector<double> R_tmp(g.nrad, 0.0); // Temporary storage for transformed V - vectors
-	V_ir [ ir ] = 1. / sqrt(g.gridw_r[ir]);
-	V_jr [ jr ] = 1. / sqrt(g.gridw_r[jr]);
+	//V_ir [ ir ] = 1. / sqrt(g.gridw_r[ir]);
+	//V_jr [ jr ] = 1. / sqrt(g.gridw_r[jr]);
+	V_ir [ ir ] = 1. ;
+	V_jr [ jr ] = 1. ;
 
 	lp.apply(V_jr.data(), R_tmp.data()); // R_tmp is supposed to contain laplacian at this point
-	V_jr[jr] /= -1.0 * double(L * (L + 1)) / gsl_pow_2(g.r[jr]); // Changing Vj!
+	V_jr[jr] *= -1.0 * double(L * (L + 1)) / gsl_pow_2(g.r[jr]); // Changing Vj!
 
 	cblas_daxpy(g.nrad, 1.0, R_tmp.data(), 1, V_jr.data(), 1);
 
-	return cblas_ddot(g.nrad, V_ir.data(), 1, V_jr.data(), 1);
+	return -0.5 * cblas_ddot(g.nrad, V_ir.data(), 1, V_jr.data(), 1);
 
 }
 

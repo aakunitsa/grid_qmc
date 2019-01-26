@@ -17,6 +17,7 @@ class Hamiltonian {
 		// Evaluate functions will later be used in FCIQMC routines; operate based on alpha/beta string indeces
 
 		double evaluate_kinetic(size_t is1, size_t is2, int type); // The form of the kinetic energy operator does not depend on the particular string
+		double evaluate_nuc(size_t is1, size_t is2, int type); // Will probably be refactored in the future (makes sense to join with kinetic energy operator 
 		double evaluate_coulomb(size_t i1, size_t i2, size_t i3, size_t i4);
 
         void build_basis();
