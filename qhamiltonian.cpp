@@ -264,16 +264,96 @@ double Hamiltonian::evaluate_coulomb(size_t ia, size_t ib, size_t ja, size_t jb)
 
 	// the rules here will be a bit more complicated compared to the kinetic operator case
 	// as alpha and beta strings can couple ( need to work out the formulas; similar to DET CI)
-	// for now this function is a dummy
+	// First, generate excitation vectors for the strings using gen_excitation
+	
+	auto [pa, froma, toa] = gen_excitation(ja_s, ia_s); 
+	auto [pb, fromb, tob] = gen_excitation(jb_s, ib_s); 
+
+	// The combined excitation order should not exceed 2
+	
+	size_t ex_order = froma.size() + fromb.size();
+
+	if ( ex_order > 2 ) {
+		return 0.0;
+	} else if ( ex_order == 2 ) {
+		// Several cases should be considered here: (2, 0), (0, 2) and (1, 1)
+
+		if (froma.size() == 2) return pa * (ce(toa[0], froma[0], toa[1], froma[1]) - ce(toa[0], froma[1], toa[1], froma[0]));
+
+		if (fromb.size() == 2) return pb * (ce(tob[0], fromb[0], tob[1], fromb[1]) - ce(tob[0], fromb[1], tob[1], fromb[0]));
+
+		if (froma.size() == 1 && fromb.size() == 1) return pa * pb * ce(tob[0], fromb[0], toa[0], froma[0]);
+
+	} else if (ex_order == 1) {
+
+		if (froma.size() != 0) {
+
+			double matrix_element = 0.0;
+			for (size_t ie = 0; ie < nalpha; ie++) {
+				matrix_element += (ce(toa[0], froma[0], ia_s[ie], ja_s[ie]) - ce(toa[0], ja_s[ie], ia_s[ie], froma[0]));
+			}
+
+			return pa * matrix_element;
+
+		}
+
+		if (fromb.size() != 0) {
+
+			double matrix_element = 0.0;
+			for (size_t ie = 0; ie < nbeta; ie++) {
+				matrix_element += (ce(tob[0], fromb[0], ib_s[ie], jb_s[ie]) - ce(tob[0], jb_s[ie], ib_s[ie], fromb[0]));
+			}
+
+			return pa * matrix_element;
+
+		}
+
+	} else {
+
+		// No excitations were generated
+		assert ( froma.size() ==0 && fromb.size() == 0 && ia == ja && ib == jb);
+
+		double matrix_element = 0.0;
+
+		// Include spin - diagonal terms first
+
+		for ( size_t i = 0; i < nalpha; i++ ) 
+			for (size_t j = 0; j < nalpha; j++) 
+				matrix_element += (ce(ia_s[i], ia_s[i], ia_s[j], ia_s[j]) - ce(ia_s[i], ia_s[j], ia_s[j], ia_s[i]));
+
+		for ( size_t i = 0; i < nbeta; i++ ) 
+			for (size_t j = 0; j < nbeta; j++) 
+				matrix_element += (ce(ib_s[i], ib_s[i], ib_s[j], ib_s[j]) - ce(ib_s[i], ib_s[j], ib_s[j], ib_s[i]));
+
+		// Include spin-coupled terms
+
+		for (size_t i = 0 ; i < nalpha; i++ ) 
+			for (size_t j = 0; j < nbeta; j++ ) 
+				matrix_element += (ce(ia_s[i], ia_s[i], jb_s[j], jb_s[j]) + ce(ia_s[j], ia_s[j], jb_s[i], jb_s[i]));
+
+		return 0.5 * matrix_element;
+
+	}
 
 	return 0.0;
-
 
 }
 
 double Hamiltonian::ce(size_t i, size_t j, size_t k, size_t l) {
 
-	return 0.0;
+	// Assumes that the orbitals are arranged in Mulliken's order, that is
+	// i and j refer to the first electron whereas k and l refer to the second
+	// Extract radial point and angular orbital index
+	
+
+	size_t iorb = i % ss.size(), ir = (i - iorb) / ss.size(),
+		   jorb = j % ss.size(), jr = (j - jorb) / ss.size(),
+		   korb = k % ss.size(), kr = (k - korb) / ss.size(),
+           lorb = l % ss.size(), lr = (l - lorb) / ss.size();
+
+	if ( kr != lr || ir != jr ) return 0;
+
+	return r12.eval_simple(g.r[ir], g.r[kr], ss.aorb[iorb], ss.aorb[jorb], ss.aorb[korb], ss.aorb[lorb]);
 
 }
 
@@ -434,3 +514,31 @@ void Hamiltonian::test1() {
 }
 
 
+void Hamiltonian::fcidump() {}
+/*
+// Would not compile for some weird reason
+void Hamiltonian::fcidump() {
+
+	// The function will perform just raw dump 
+	// without accounting for the symmetry of 
+	// the eri-s
+
+	fstream int_file;
+	int_file.open("QFCIDUMP", std::ios::out);
+	assert(int_file.is_open());
+
+	// Calculate Fock matrix on the grid and diagonalize
+	// it; Will produce essentially garbage in this case since
+	// the orbitals are not optimized
+
+	// Do one-particle part first
+	
+	// Do two-particle part
+	
+	// Close the file 
+	
+	int_file.close();
+
+}
+*/
+	

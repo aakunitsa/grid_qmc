@@ -32,6 +32,8 @@ class Hamiltonian {
 			return nbf;
 		}
 
+		void fcidump(); // Dumps the integrals in FCIQMC readable format
+
 		std::vector< std::vector<size_t> > alpha_str, beta_str;
 
 		// Built-in testing framework
