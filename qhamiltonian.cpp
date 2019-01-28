@@ -108,9 +108,10 @@ vector<double> Hamiltonian::diag() {
 
 			Hij += evaluate_kinetic(ia, ja, ALPHA);
 			Hij += evaluate_nuc(ia, ja, ALPHA);
-			if (beta_str.size() > 0)
+			if (beta_str.size() > 0) {
 				Hij += evaluate_kinetic(ib, jb, BETA);
 				Hij += evaluate_nuc(ib, jb, BETA);
+			}
 			if (nel > 1) 
 				Hij += evaluate_coulomb(ia, ib, ja, jb);
 
@@ -227,12 +228,14 @@ double Hamiltonian::evaluate_nuc(size_t is, size_t js, int type) {
 	double result = 0.0;
 
 	if (is !=  js) return 0.;
+
+	assert ( is == js); // This should be the case if we reached this point
 	
 	if (type == ALPHA) {
 		// for each orbital in the alpha/beta string 
 		// extract the radial point index
 
-		for (auto &i : alpha_str[is] ) {
+		for (const auto &i : alpha_str[is] ) {
 			size_t  ir = (i - i % ss.size()) / ss.size();
 			assert ( ir < g.nrad);
 			result += -1. / g.r[ir];
@@ -241,7 +244,7 @@ double Hamiltonian::evaluate_nuc(size_t is, size_t js, int type) {
 
 	} else if (type  == BETA) {
 
-		for (auto &i : beta_str[is] ) {
+		for (const auto &i : beta_str[is] ) {
 			size_t  ir = (i - i % ss.size()) / ss.size();
 			assert ( ir < g.nrad);
 			result += -1. / g.r[ir];
@@ -293,17 +296,21 @@ double Hamiltonian::ke(size_t i, size_t j) {
 
 	std::vector<double> V_ir (g.nrad, 0.0), V_jr (g.nrad, 0.0);
 	std::vector<double> R_tmp(g.nrad, 0.0); // Temporary storage for transformed V - vectors
-	//V_ir [ ir ] = 1. / sqrt(g.gridw_r[ir]);
-	//V_jr [ jr ] = 1. / sqrt(g.gridw_r[jr]);
-	V_ir [ ir ] = 1. ;
-	V_jr [ jr ] = 1. ;
+	V_ir [ ir ] = 1. / sqrt(g.gridw_r[ir]);
+	V_jr [ jr ] = 1. / sqrt(g.gridw_r[jr]);
 
 	lp.apply(V_jr.data(), R_tmp.data()); // R_tmp is supposed to contain laplacian at this point
 	V_jr[jr] *= -1.0 * double(L * (L + 1)) / gsl_pow_2(g.r[jr]); // Changing Vj!
 
 	cblas_daxpy(g.nrad, 1.0, R_tmp.data(), 1, V_jr.data(), 1);
 
-	return -0.5 * cblas_ddot(g.nrad, V_ir.data(), 1, V_jr.data(), 1);
+	double matrix_element = 0.0;
+
+	for (size_t i = 0; i < g.nrad; i++) 
+		matrix_element += V_ir [ i ] * g.gridw_r[ i ] * V_jr[ i ];
+
+
+	return -0.5 * matrix_element;
 
 }
 
