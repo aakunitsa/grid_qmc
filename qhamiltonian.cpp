@@ -160,18 +160,18 @@ vector<double> Hamiltonian::diag() {
 
 			Hij += evaluate_kinetic(ia, ja, ALPHA) * (ib == jb ? 1. : 0.);
 			Hij += evaluate_nuc(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
-			//if (nel > 1) {
+			if (nel > 1) {
 				// Check if the string index is within bounds 
-				//assert ( ia < num_alpha_str && ja < num_alpha_str );
-				//Hij += evaluate_coulomb(ia, ja, ALPHA);
-			//}
+				assert ( ia < num_alpha_str && ja < num_alpha_str );
+				Hij += evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
+			}
 			if (beta_str.size() > 0) {
 				Hij += evaluate_kinetic(ib, jb, BETA)* (ia == ja ? 1. : 0.);
 				Hij += evaluate_nuc(ib, jb, BETA)* (ia == ja ? 1. : 0.);
-				//if (nel > 1) {
-				//	Hij += evaluate_coulomb(ib, jb, BETA);
-				//	Hij += evaluate_coulomb_coupled(ia, ib, ja, jb);
-			    //}	
+				if (nel > 1) {
+					Hij += evaluate_coulomb(ib, jb, BETA) * (ia == ja ? 1. : 0.);
+					Hij += evaluate_coulomb_coupled(ia, ib, ja, jb); // does not need Kroneker delta
+			    }	
 			}
 
 			if ( i == j ) max_d = std::max(max_d, std::abs(Hij));
@@ -283,7 +283,7 @@ double Hamiltonian::evaluate_kinetic(size_t is, size_t js, int type) {
 	// If there is more than two indeces that differ - return 0
 	
 
-	auto [ p, from, to ] = gen_excitation(is_v, js_v);
+	auto [ p, from, to ] = gen_excitation(js_v, is_v);
 
 	/*
 	for (const auto &o : from)
@@ -440,7 +440,7 @@ double Hamiltonian::evaluate_coulomb(size_t ia, size_t ib, size_t ja, size_t jb)
 
 double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 
-	assert ( false );
+	//assert ( false );
 
 
 	std::vector<size_t> &i_s = (type == ALPHA ? alpha_str[idet] : beta_str[idet]),
@@ -467,7 +467,8 @@ double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 		double matrix_element = 0.0;
 
 		for (size_t ie = 0; ie < (type == ALPHA ? nalpha : nbeta); ie++) {
-			matrix_element += (ce(to[0], from[0], i_s[ie], j_s[ie]) - ce(to[0], j_s[ie], i_s[ie], from[0]));
+			//matrix_element += (ce(to[0], from[0], i_s[ie], j_s[ie]) - ce(to[0], j_s[ie], i_s[ie], from[0]));
+			matrix_element += (ce(to[0], from[0], j_s[ie], j_s[ie]) - ce(to[0], j_s[ie], j_s[ie], from[0]));
 		}
 
 		return p * matrix_element;
@@ -495,7 +496,7 @@ double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 
 double Hamiltonian::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja, size_t jb) {
 
-	assert (false);
+	//assert (false);
 
 	auto &ia_s = alpha_str[ia], 
 		 &ib_s = beta_str[ib],
