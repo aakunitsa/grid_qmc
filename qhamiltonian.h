@@ -67,6 +67,11 @@ class Hamiltonian {
 		double ce(size_t i, size_t j, size_t k, size_t l); // Evaluates coulomb integral in chemists notation; i.e. (ij|kl)
 	    std::tuple<int, std::vector<size_t>, std::vector<size_t> > gen_excitation(std::vector<size_t> &s_from, std::vector<size_t> &s_to);	
 
+		// Davidson solver parameters
+		
+		std::vector< double > H_diag;
+		std::vector< size_t > iperm;
+
 
 };
 

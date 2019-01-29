@@ -123,7 +123,37 @@ void Hamiltonian::build_basis() {
 
 #endif
 
+	std::cout << "Calculting H diagonal " << std::endl; // Will later be used by DAvidson solver
+	H_diag.resize(get_basis_size());
+	iperm.resize(get_basis_set());
 
+	for (size_t i = 0; i < get_basis_size(); i++) {
+		double Hii = 0.0;
+
+		auto [ ia, ib ] = unpack_str_index(i);
+		Hii += evaluate_kinetic(ia, ia, ALPHA);
+		Hii += evaluate_nuc(ia, ia, ALPHA);
+		if (nel > 1) {
+			// Check if the string index is within bounds 
+			assert ( ia < num_alpha_str && ia < num_alpha_str );
+			Hii += evaluate_coulomb(ia, ia, ALPHA);
+		}
+		if (beta_str.size() > 0) {
+			Hii += evaluate_kinetic(ib, ib, BETA);
+			Hii += evaluate_nuc(ib, ib, BETA);
+			if (nel > 1) {
+				Hii += evaluate_coulomb(ib, ib, BETA);
+				Hii += evaluate_coulomb_coupled(ia, ib, ia, ib); // does not need Kroneker delta
+		    }	
+		}
+
+		H_diag[i] = Hii;
+	}
+
+	// After diagonal has been calculated - perform indirect sorting to populate iperm
+	
+	gsl_sort_index(iperm.data(), H_diag.data(), 1, get_basis_size());
+	
 }
 
 vector<double> Hamiltonian::diag() {
