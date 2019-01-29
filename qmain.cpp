@@ -60,37 +60,20 @@ int main(int argc, char **argv) {
 
 	// Only run this for hydrogen atom for now
 	
-	if (q.params["electrons"] == 1) {
-
-
-	Hamiltonian h1p(q.params, ss);
-	h1p.test1();
-	h1p.build_basis();
-
-		std::cout << " The hamiltonian will be diagonalized " << std::endl;
-		auto e = h1p.diag();
-		std::sort(e.begin(), e.end());
-
-	    std::cout << " Printing the first 10 eigenvalues of the hamiltonian " << std::endl;
-	    std::cout << std::scientific;
-
-		for (size_t i = 0; i < std::min(size_t(10), e.size()); i++) 
-			std::cout << e[i] << std::endl;
-	} else if (q.params["electrons"] == 2 && q.params["Z"] == 2) {
-		std::cout << " Diagonalizing He atom Hamiltonian " << std::endl;
-	Hamiltonian h2p(q.params, ss);
-	h2p.build_basis();
-	auto e = h2p.diag();
+    std::cout << " Diagonalizing Hamiltonian for atom with nuclear charge " << q.params["Z"] << " with " 
+		      << q.params["electrons"] << " electrons " <<  std::endl;
+	Hamiltonian h(q.params, ss);
+	h.build_basis();
+	auto e = h.diag();
 
     std::sort(e.begin(), e.end());
 
-    std::cout << " Printing the first 10 eigenvalues of the hamiltonian " << std::endl;
+    std::cout << " Printing the first 50 eigenvalues of the hamiltonian " << std::endl;
     std::cout << std::scientific;
-	for (size_t i = 0; i < std::min(size_t(10), e.size()); i++) 
+	for (size_t i = 0; i < std::min(size_t(50), e.size()); i++) 
 		std::cout << e[i] << std::endl;
 
 
-	}
 
 
 

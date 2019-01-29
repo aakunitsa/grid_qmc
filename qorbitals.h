@@ -3,6 +3,7 @@
 #include <tuple>
 #include <vector>
 #include <assert.h>
+#include <algorithm>
 #include <gsl/gsl_math.h>
 #include <gsl/gsl_sf_legendre.h>
 #include <gsl/gsl_sf_coulomb.h>
@@ -23,6 +24,12 @@ class ShellSet {
                 for (int m = -l; m < l + 1; m++)
                     aorb[ l * l  + m + l ] = { l, m };
         } 
+		ShellSet(const ShellSet &s) {
+			L_max = s.L_max;
+			aorb.resize((L_max + 1) * (L_max + 1));
+			std::copy(s.aorb.cbegin(), s.aorb.cend(), aorb.begin());
+
+		}
         size_t size() { return (L_max + 1) * (L_max + 1); }
         std::vector<LM> aorb;
         size_t L_max;

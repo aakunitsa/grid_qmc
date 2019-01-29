@@ -21,8 +21,8 @@ Hamiltonian::Hamiltonian(std::map<string, int> &p, ShellSet &orb) : ss(orb), lp(
 	Znuc = double(p["Z"]);
 
 
-	std::cout << " Number of electrons :" << nel <<  std::endl; 
-	std::cout << " Multiplicity :" << mult << std::endl; 
+	std::cout << " Number of electrons : " << nel <<  std::endl; 
+	std::cout << " Multiplicity : " << mult << std::endl; 
 
 	assert (nel > 0 && mult > 0);
 
@@ -67,8 +67,28 @@ void Hamiltonian::build_basis() {
         } while (gsl_combination_next(c) == GSL_SUCCESS);
         gsl_combination_free(c);
         printf("Generated %5d alpha strings\n", alpha_str.size());
+		printf("Checking strings... ");
+
+		for (const auto &s : alpha_str )
+			for (const auto &o : s)
+				assert ( o < n1porb );
+
+		printf("done!\n");
 
     } 
+
+
+#ifdef DEBUG_BAS
+	// Print the full list of alpha strings
+	std::cout << " The list of alpha strings will be printed below " << std::endl;
+	for (size_t i = 0; i < alpha_str.size(); i++) {
+		for (size_t j = 0; j < nalpha; j++) 
+			std::cout << alpha_str[i][j] << '\t';
+
+		std::cout << std::endl;
+	}
+
+#endif
     
     if (nbeta != 0) {
         printf("The number of beta electrons is %5d\n", nbeta);
@@ -81,16 +101,41 @@ void Hamiltonian::build_basis() {
         } while (gsl_combination_next(c) == GSL_SUCCESS);
         gsl_combination_free(c);
         printf("Generated %5d beta strings\n", beta_str.size());
+		printf("Checking strings... ");
+
+		for (const auto &s : beta_str )
+			for (const auto &o : s)
+				assert ( o < n1porb );
+
+		printf("done!\n");
 
     } 
+
+#ifdef DEBUG_BAS
+	// Print the full list of beta strings
+	std::cout << " The list of beta strings will be printed below " << std::endl;
+	for (size_t i = 0; i < beta_str.size(); i++) {
+		for (size_t j = 0; j < nbeta; j++) 
+			std::cout << beta_str[i][j] << '\t';
+
+		std::cout << std::endl;
+	}
+
+#endif
+
 
 }
 
 vector<double> Hamiltonian::diag() {
 
+	// When building matrix it is helpful assess if it is diagonally dominant
+	// so that one could see if the Davidson solver will perform well in this
+	// case
+
 	size_t num_alpha_str = alpha_str.size(), num_beta_str = beta_str.size();
     assert ( num_alpha_str != 0 || num_beta_str != 0);
     size_t n_bf = get_basis_size();
+
     gsl_matrix *h_grid = gsl_matrix_calloc(n_bf, n_bf);
     gsl_matrix *eigvecs = gsl_matrix_calloc(n_bf, n_bf);
     gsl_vector *energies = gsl_vector_calloc(n_bf); // Just in case
@@ -99,6 +144,8 @@ vector<double> Hamiltonian::diag() {
 
     printf("Building the matrix...\n");
 
+	double max_d = 0.0, max_offd = 0.0;
+
     for (size_t i = 0; i < n_bf; i++) 
         for (int j = i; j < n_bf; j++) {
 			// Identify alpha/beta strings corresponding to i and j;
@@ -106,29 +153,37 @@ vector<double> Hamiltonian::diag() {
 			auto [ ia, ib ] = unpack_str_index(i);
 			auto [ ja, jb ] = unpack_str_index(j);
 
+			assert ( ia < num_alpha_str && ja < num_alpha_str);
+			if (nbeta > 0) assert (ib < num_beta_str && jb < num_beta_str);
+
 			double Hij = 0.0;
 
-			Hij += evaluate_kinetic(ia, ja, ALPHA);
-			Hij += evaluate_nuc(ia, ja, ALPHA);
-			if (nel > 1) {
+			Hij += evaluate_kinetic(ia, ja, ALPHA) * (ib == jb ? 1. : 0.);
+			Hij += evaluate_nuc(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
+			//if (nel > 1) {
 				// Check if the string index is within bounds 
-				assert ( ia < num_alpha_str && ja < num_alpha_str );
-				Hij += evaluate_coulomb(ia, ja, ALPHA);
-			}
+				//assert ( ia < num_alpha_str && ja < num_alpha_str );
+				//Hij += evaluate_coulomb(ia, ja, ALPHA);
+			//}
 			if (beta_str.size() > 0) {
-				Hij += evaluate_kinetic(ib, jb, BETA);
-				Hij += evaluate_nuc(ib, jb, BETA);
-				if (nel > 1) {
-					Hij += evaluate_coulomb(ib, jb, BETA);
-					Hij += evaluate_coulomb_coupled(ia, ib, ja, jb);
-			    }	
+				Hij += evaluate_kinetic(ib, jb, BETA)* (ia == ja ? 1. : 0.);
+				Hij += evaluate_nuc(ib, jb, BETA)* (ia == ja ? 1. : 0.);
+				//if (nel > 1) {
+				//	Hij += evaluate_coulomb(ib, jb, BETA);
+				//	Hij += evaluate_coulomb_coupled(ia, ib, ja, jb);
+			    //}	
 			}
+
+			if ( i == j ) max_d = std::max(max_d, std::abs(Hij));
+			if ( i != j ) max_offd = std::max(max_offd, std::abs(Hij));
 
 			gsl_matrix_set(h_grid, i, j, Hij);
 			gsl_matrix_set(h_grid, j, i, Hij);
         }
 
     printf("Done!\n");
+
+	printf("|max Hii| / | max Hij (i != j) | = %20.10f\n", max_d/ max_offd);
 
 #ifdef DEBUG
     for (int i = 0; i < n_bf; i++) {
@@ -140,11 +195,15 @@ vector<double> Hamiltonian::diag() {
     }
 #endif
 
+	printf("Starting full diagonalization... ");
+
     gsl_eigen_symmv_workspace *w  = gsl_eigen_symmv_alloc(n_bf);
     gsl_eigen_symmv(h_grid, energies, eigvecs, w);
     gsl_eigen_symmv_free(w);
 
     gsl_eigen_symmv_sort (energies, eigvecs, GSL_EIGEN_SORT_VAL_ASC);
+
+	printf("Done! \n");
 
     vector<double> eigvals;
 
@@ -185,6 +244,8 @@ double Hamiltonian::evaluate_kinetic(size_t is, size_t js, int type) {
 	
 	if (type == ALPHA) {
 
+		assert ( is < alpha_str.size() && js < alpha_str.size() );
+
 		is_v.resize(nalpha);
 		js_v.resize(nalpha);
 
@@ -193,13 +254,28 @@ double Hamiltonian::evaluate_kinetic(size_t is, size_t js, int type) {
 		std::copy(alpha_str[is].begin(), alpha_str[is].end(), is_v.begin());
 		std::copy(alpha_str[js].begin(), alpha_str[js].end(), js_v.begin());
 
+		// Check strings generated by the copy function
+        /*
+		for ( const auto &o : is_v )
+			assert ( o < n1porb );
+		for ( const auto &o : js_v )
+			assert ( o < n1porb );
+		*/
+
 	} else if (type  == BETA) {
 
 		is_v.resize(nbeta);
 		js_v.resize(nbeta);
 
-		std::copy(alpha_str[is].begin(), alpha_str[is].end(), is_v.begin());
-		std::copy(alpha_str[js].begin(), alpha_str[js].end(), js_v.begin());
+		std::copy(beta_str[is].begin(), beta_str[is].end(), is_v.begin());
+		std::copy(beta_str[js].begin(), beta_str[js].end(), js_v.begin());
+        
+		/*
+		for ( const auto &o : is_v )
+			assert ( o < n1porb );
+		for ( const auto &o : js_v )
+			assert ( o < n1porb );
+		*/
 
 	}
 
@@ -209,10 +285,17 @@ double Hamiltonian::evaluate_kinetic(size_t is, size_t js, int type) {
 
 	auto [ p, from, to ] = gen_excitation(is_v, js_v);
 
+	/*
+	for (const auto &o : from)
+		assert ( o < n1porb );
+	for (const auto &o : to)
+		assert ( o < n1porb );
+	*/
+
 	if (from.size() ==  0) {
 		// Means that the two orbital strings are equivalent (should be literaly identical)
 		double integral = 0.0;
-		for (size_t i  = 0; i < type == ALPHA ? nalpha : nbeta; i++ )
+		for (size_t i  = 0; i < (type == ALPHA ? nalpha : nbeta); i++ )
 			integral += ke(is_v[i], is_v[i]);
 
 		return integral;
@@ -237,7 +320,7 @@ double Hamiltonian::evaluate_nuc(size_t is, size_t js, int type) {
 
 	if (is !=  js) return 0.;
 
-	assert ( is == js); // This should be the case if we reached this point
+	assert (is == js); // This should be the case if we reached this point
 	
 	if (type == ALPHA) {
 		// for each orbital in the alpha/beta string 
@@ -357,6 +440,8 @@ double Hamiltonian::evaluate_coulomb(size_t ia, size_t ib, size_t ja, size_t jb)
 
 double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 
+	assert ( false );
+
 
 	std::vector<size_t> &i_s = (type == ALPHA ? alpha_str[idet] : beta_str[idet]),
 		                &j_s = (type == ALPHA ? alpha_str[jdet] : beta_str[jdet]);
@@ -408,8 +493,9 @@ double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 
 }
 
-
 double Hamiltonian::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja, size_t jb) {
+
+	assert (false);
 
 	auto &ia_s = alpha_str[ia], 
 		 &ib_s = beta_str[ib],
@@ -477,6 +563,8 @@ double Hamiltonian::ke(size_t i, size_t j) {
 	// 2nd g.p {angular orbitals } and so on such that the index of the radial grid point 
 	// changes slowly as opposed to the index of the angular orbital
 	// According to this convention:
+	
+	assert ( i < n1porb && j < n1porb );
 	
 	size_t iorb = i % ss.size(), ir = (i - iorb) / ss.size(),
 		   jorb = j % ss.size(), jr = (j - jorb) / ss.size();
