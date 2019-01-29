@@ -18,7 +18,9 @@ class Hamiltonian {
 
 		double evaluate_kinetic(size_t is1, size_t is2, int type); // The form of the kinetic energy operator does not depend on the particular string
 		double evaluate_nuc(size_t is1, size_t is2, int type); // Will probably be refactored in the future (makes sense to join with kinetic energy operator 
-		double evaluate_coulomb(size_t i1, size_t i2, size_t i3, size_t i4);
+		//double evaluate_coulomb(size_t i1, size_t i2, size_t i3, size_t i4);
+		double evaluate_coulomb_coupled(size_t i1, size_t i2, size_t i3, size_t i4);
+		double evaluate_coulomb(size_t i, size_t j, int type);
 
         void build_basis();
         vector<double> diag();
@@ -49,6 +51,8 @@ class Hamiltonian {
 		Laplacian lp;
 		Coulomb r12;
 		size_t nel, nalpha, nbeta, n1porb;
+
+		double Znuc;
 
 		std::tuple<size_t, size_t> unpack_str_index(size_t idx) {  
 			size_t ialpha, ibeta;

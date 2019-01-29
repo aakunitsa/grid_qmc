@@ -18,6 +18,8 @@ Hamiltonian::Hamiltonian(std::map<string, int> &p, ShellSet &orb) : ss(orb), lp(
 
 	nel = p["electrons"];
 	size_t mult = p["mult"];
+	Znuc = double(p["Z"]);
+
 
 	std::cout << " Number of electrons :" << nel <<  std::endl; 
 	std::cout << " Multiplicity :" << mult << std::endl; 
@@ -108,13 +110,19 @@ vector<double> Hamiltonian::diag() {
 
 			Hij += evaluate_kinetic(ia, ja, ALPHA);
 			Hij += evaluate_nuc(ia, ja, ALPHA);
+			if (nel > 1) {
+				// Check if the string index is within bounds 
+				assert ( ia < num_alpha_str && ja < num_alpha_str );
+				Hij += evaluate_coulomb(ia, ja, ALPHA);
+			}
 			if (beta_str.size() > 0) {
 				Hij += evaluate_kinetic(ib, jb, BETA);
 				Hij += evaluate_nuc(ib, jb, BETA);
+				if (nel > 1) {
+					Hij += evaluate_coulomb(ib, jb, BETA);
+					Hij += evaluate_coulomb_coupled(ia, ib, ja, jb);
+			    }	
 			}
-			if (nel > 1) 
-				Hij += evaluate_coulomb(ia, ib, ja, jb);
-
 
 			gsl_matrix_set(h_grid, i, j, Hij);
 			gsl_matrix_set(h_grid, j, i, Hij);
@@ -238,7 +246,7 @@ double Hamiltonian::evaluate_nuc(size_t is, size_t js, int type) {
 		for (const auto &i : alpha_str[is] ) {
 			size_t  ir = (i - i % ss.size()) / ss.size();
 			assert ( ir < g.nrad);
-			result += -1. / g.r[ir];
+			result += -Znuc / g.r[ir];
 		}
 
 
@@ -247,15 +255,17 @@ double Hamiltonian::evaluate_nuc(size_t is, size_t js, int type) {
 		for (const auto &i : beta_str[is] ) {
 			size_t  ir = (i - i % ss.size()) / ss.size();
 			assert ( ir < g.nrad);
-			result += -1. / g.r[ir];
+			result += -Znuc / g.r[ir];
 		}
 
 	}
 
 	return result;
 }
-
+/*
 double Hamiltonian::evaluate_coulomb(size_t ia, size_t ib, size_t ja, size_t jb) {
+
+	std::cout << " Inside evaluate_coulomb method (top) " << std::endl;
 
 	auto &ia_s = alpha_str[ia], 
 		 &ib_s = beta_str[ib],
@@ -267,11 +277,18 @@ double Hamiltonian::evaluate_coulomb(size_t ia, size_t ib, size_t ja, size_t jb)
 	// First, generate excitation vectors for the strings using gen_excitation
 	
 	auto [pa, froma, toa] = gen_excitation(ja_s, ia_s); 
+    //std::cout << "Generated alpha type excitation " << std::endl;
+
+	assert (jb_s.size() == 0 && ib_s.size() == 0); // Just for now since I am working with triplet
+
 	auto [pb, fromb, tob] = gen_excitation(jb_s, ib_s); 
+    //std::cout << "Generated beta type excitation " << std::endl;
 
 	// The combined excitation order should not exceed 2
 	
 	size_t ex_order = froma.size() + fromb.size();
+
+	std::cout << " The excitation order inside the eval_coulomb function is " << ex_order << std::endl;
 
 	if ( ex_order > 2 ) {
 		return 0.0;
@@ -335,7 +352,103 @@ double Hamiltonian::evaluate_coulomb(size_t ia, size_t ib, size_t ja, size_t jb)
 
 	}
 
-	return 0.0;
+}
+*/
+
+double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
+
+
+	std::vector<size_t> &i_s = (type == ALPHA ? alpha_str[idet] : beta_str[idet]),
+		                &j_s = (type == ALPHA ? alpha_str[jdet] : beta_str[jdet]);
+
+	// the rules here will be a bit more complicated compared to the kinetic operator case
+	// as alpha and beta strings can couple ( need to work out the formulas; similar to DET CI)
+	// First, generate excitation vectors for the strings using gen_excitation
+	
+	auto [p, from, to] = gen_excitation(j_s, i_s); 
+	
+	size_t ex_order = from.size();
+
+	if ( ex_order > 2 ) {
+
+		return 0.0;
+
+	} else if ( ex_order == 2 ) {
+
+		if (from.size() == 2) return p * (ce(to[0], from[0], to[1], from[1]) - ce(to[0], from[1], to[1], from[0]));
+
+	} else if (ex_order == 1) {
+
+		double matrix_element = 0.0;
+
+		for (size_t ie = 0; ie < (type == ALPHA ? nalpha : nbeta); ie++) {
+			matrix_element += (ce(to[0], from[0], i_s[ie], j_s[ie]) - ce(to[0], j_s[ie], i_s[ie], from[0]));
+		}
+
+		return p * matrix_element;
+
+	} else {
+
+		// No excitations were generated
+		assert (from.size() == 0 && idet == jdet);
+
+		double matrix_element = 0.0;
+
+		// Include spin - diagonal terms first
+
+		for ( size_t i = 0; i < (type == ALPHA ? nalpha : nbeta); i++ ) 
+			for (size_t j = 0; j < (type == ALPHA ? nalpha : nbeta); j++) 
+				matrix_element += (ce(i_s[i], i_s[i], i_s[j], i_s[j]) - ce(i_s[i], i_s[j], i_s[j], i_s[i]));
+
+
+
+		return 0.5 * matrix_element;
+
+	}
+
+}
+
+
+double Hamiltonian::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja, size_t jb) {
+
+	auto &ia_s = alpha_str[ia], 
+		 &ib_s = beta_str[ib],
+		 &ja_s = alpha_str[ja],
+		 &jb_s = beta_str[jb];
+
+	// the rules here will be a bit more complicated compared to the kinetic operator case
+	// as alpha and beta strings can couple ( need to work out the formulas; similar to DET CI)
+	// First, generate excitation vectors for the strings using gen_excitation
+	
+	auto [pa, froma, toa] = gen_excitation(ja_s, ia_s); 
+	auto [pb, fromb, tob] = gen_excitation(jb_s, ib_s); 
+	
+	size_t ex_order = froma.size() + fromb.size();
+
+	if ( ex_order == 2 && froma.size() == 1 && fromb.size() == 1) {
+
+		return pa * pb * ce(tob[0], fromb[0], toa[0], froma[0]);
+
+	} else if ( ex_order == 0) {
+
+		// No excitations were generated
+		assert ( froma.size() ==0 && fromb.size() == 0 && ia == ja && ib == jb);
+
+		double matrix_element = 0.0;
+
+		// Include spin-coupled terms
+
+		for (size_t i = 0 ; i < nalpha; i++ ) 
+			for (size_t j = 0; j < nbeta; j++ ) 
+				matrix_element += (ce(ia_s[i], ia_s[i], jb_s[j], jb_s[j]) + ce(ia_s[j], ia_s[j], jb_s[i], jb_s[i]));
+
+		return 0.5 * matrix_element;
+
+	} else {
+
+		return 0.0;
+
+	}
 
 }
 
@@ -396,11 +509,20 @@ double Hamiltonian::ke(size_t i, size_t j) {
 
 std::tuple<int, std::vector<size_t>, std::vector<size_t> > Hamiltonian::gen_excitation(std::vector<size_t> &i, std::vector<size_t> &j) {
 
+	// The first string is the starting one; the excitations will be generated from it
+
 	assert (i.size() == j.size());
 
     int perm = 0; // Number of permutations required to align the orbital strings
-	std::vector<size_t> ex, from, to;
+	std::vector<size_t> ex, from, to; 
 	size_t n = i.size();
+
+	if (i.size() == 0) {
+		std::cout << " I am here! " << std::endl;
+		// If arrays have zero sizes - 
+		// do nothing; 
+		return std::make_tuple(1, from, to);
+	}
 
 
     for (size_t ie = 0; ie < n; ie++) {
