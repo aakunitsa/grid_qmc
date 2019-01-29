@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <algorithm>
 #include <iostream>
+#include <armadillo>
 #include <gsl/gsl_combination.h>
 #include <gsl/gsl_eigen.h>
 #include <gsl/gsl_vector.h>
@@ -152,7 +153,7 @@ void Hamiltonian::build_basis() {
 
 	// After diagonal has been calculated - perform indirect sorting to populate iperm
 	
-	gsl_sort_index(iperm.data(), H_diag.data(), 1, get_basis_size());
+	//gsl_sort_index(iperm.data(), H_diag.data(), 1, get_basis_size());
 	
 }
 
@@ -263,6 +264,115 @@ vector<double> Hamiltonian::diag() {
     gsl_vector_free(energies);
 
     return eigvals;
+}
+
+
+/*
+// For future use? Will implement this using Armadillo for now as
+// it has the option to generate limited number of eigenvalue - eigenvector 
+// pairs
+std::vector<double> diag_davidson(size_t nstates) {
+
+    // This function will make heavy use of Armadillo classes
+    // Default parameters
+    size_t niter = 50;
+    size_t nspace_max = size_t(10 * nstates); // Maximum size of Davidson space
+    size_t nspace = nstates;                  // Current Davidson subspace size
+    double rtol = 1e-6;                       // Maximum residue tollerance indicating convergence
+    double norm_thersh = 1e-3;                // Norm threshold for including vector into the subspace 
+
+    size_t n_bf = get_basis_size();
+
+    // Allocate memory for all the intermediate matrices first;
+    // Some of the temporary ones can be created while running 
+    // the iterations
+
+    arma::mat V(n_bf, nspace_max, arma::fill:zeros);
+    arma::vec diag_H(H_diag.data(), n_bf);
+
+
+    for (size_t i = 0; i < niter; i++ ) {
+
+
+
+    }
+
+}
+*/
+std::vector<double> diag_davidson(size_t nstates) {
+
+    double tol = 1.e-6; // Convergence tollerance
+
+    size_t num_alpha_str = alpha_str.size(), num_beta_str = beta_str.size();
+    assert ( num_alpha_str != 0 || num_beta_str != 0);
+    size_t n_bf = get_basis_size();
+
+    arma::mat h_grid(n_bf, n_bf, arma::fill:zeros);
+    arma::mat eigvecs;
+    arma::vec eigvals; 
+
+    std::cout << " The size of the N-electron basis set is " << n_bf << std::endl;
+
+    printf("Building the matrix...\n");
+
+    double max_d = 0.0, max_offd = 0.0;
+
+    for (size_t i = 0; i < n_bf; i++) 
+        for (int j = i; j < n_bf; j++) {
+	// Identify alpha/beta strings corresponding to i and j;
+
+            auto [ ia, ib ] = unpack_str_index(i);
+            auto [ ja, jb ] = unpack_str_index(j);
+
+            assert ( ia < num_alpha_str && ja < num_alpha_str);
+            if (nbeta > 0) assert (ib < num_beta_str && jb < num_beta_str);
+
+            double Hij = 0.0;
+
+            Hij += evaluate_kinetic(ia, ja, ALPHA) * (ib == jb ? 1. : 0.);
+            Hij += evaluate_nuc(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
+            if (nel > 1) {
+            // Check if the string index is within bounds 
+                assert ( ia < num_alpha_str && ja < num_alpha_str );
+		Hij += evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
+	    }
+	    if (beta_str.size() > 0) {
+		Hij += evaluate_kinetic(ib, jb, BETA)* (ia == ja ? 1. : 0.);
+		Hij += evaluate_nuc(ib, jb, BETA)* (ia == ja ? 1. : 0.);
+		if (nel > 1) {
+                    Hij += evaluate_coulomb(ib, jb, BETA) * (ia == ja ? 1. : 0.);
+                    Hij += evaluate_coulomb_coupled(ia, ib, ja, jb); // does not need Kroneker delta
+		}	
+	    }
+
+            if ( i == j ) max_d = std::max(max_d, std::abs(Hij));
+            if ( i != j ) max_offd = std::max(max_offd, std::abs(Hij));
+
+	    h_grid(i, j) =  Hij; // Performs bounds checking; can be disabled at compile time
+	    h_grid(j, i) =  Hij; // Performs bounds checking; can be disabled at compile time
+        }
+
+    printf("Done!\n");
+
+    // Check if the matrix is indeed symmetric
+    assert (h_grid.is_symmetric());
+
+    printf("|max Hii| / | max Hij (i != j) | = %20.10f\n", max_d/ max_offd);
+
+    printf("Starting diagonalization... ");
+
+    bool solved = arma::eigs_sym(eigvals, eigvecs, h_grid, nstates, "sa", tol);
+
+    assert (solved);
+
+    printf("Done! \n");
+
+    vector<double> en(nstates, 0.0);
+
+    std::copy(eigvals.begin(), eigvals.end(), en.begin());
+
+    return en;
+
 }
 
 double Hamiltonian::evaluate_kinetic(size_t is, size_t js, int type) {

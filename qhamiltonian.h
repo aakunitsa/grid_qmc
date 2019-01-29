@@ -25,6 +25,8 @@ class Hamiltonian {
         void build_basis();
         vector<double> diag();
 
+        vector<double> diag_davidson(size_t nstates); // Uses Davidson-Liu algorithm to find nstates lowest energy states
+
         size_t get_basis_size() { 
 			size_t nbf = 1;
 			if (nalpha != 0)
@@ -47,19 +49,19 @@ class Hamiltonian {
     private:
 
         ShellSet &ss;
-		Becke_grid g;
-		Laplacian lp;
-		Coulomb r12;
-		size_t nel, nalpha, nbeta, n1porb;
+	Becke_grid g;
+	Laplacian lp;
+	Coulomb r12;
+	size_t nel, nalpha, nbeta, n1porb;
 
-		double Znuc;
+	double Znuc;
 
-		std::tuple<size_t, size_t> unpack_str_index(size_t idx) {  
-			size_t ialpha, ibeta;
-			ialpha = idx % ( alpha_str.size() );
-			ibeta = (idx - ialpha ) / alpha_str.size();
-			return std::make_tuple(ialpha, ibeta);
-		}
+	std::tuple<size_t, size_t> unpack_str_index(size_t idx) {  
+            size_t ialpha, ibeta;
+	    ialpha = idx % ( alpha_str.size() );
+	    ibeta = (idx - ialpha ) / alpha_str.size();
+	    return std::make_tuple(ialpha, ibeta);
+	}
 
 		// Elementary integrals
 
