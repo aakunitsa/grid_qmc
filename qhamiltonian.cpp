@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <iostream>
 #include <armadillo>
+#include <limits>
 #include <gsl/gsl_combination.h>
 #include <gsl/gsl_eigen.h>
 #include <gsl/gsl_vector.h>
@@ -126,7 +127,7 @@ void Hamiltonian::build_basis() {
 
 	std::cout << "Calculting H diagonal " << std::endl; // Will later be used by DAvidson solver
 	H_diag.resize(get_basis_size());
-	iperm.resize(get_basis_set());
+	//iperm.resize(get_basis_size());
 
 	for (size_t i = 0; i < get_basis_size(); i++) {
 		double Hii = 0.0;
@@ -136,7 +137,7 @@ void Hamiltonian::build_basis() {
 		Hii += evaluate_nuc(ia, ia, ALPHA);
 		if (nel > 1) {
 			// Check if the string index is within bounds 
-			assert ( ia < num_alpha_str && ia < num_alpha_str );
+			assert ( ia < alpha_str.size() && ia < alpha_str.size() );
 			Hii += evaluate_coulomb(ia, ia, ALPHA);
 		}
 		if (beta_str.size() > 0) {
@@ -216,6 +217,16 @@ vector<double> Hamiltonian::diag() {
 
 	printf("|max Hii| / | max Hij (i != j) | = %20.10f\n", max_d/ max_offd);
 
+	double norm2 = 0.0;
+
+	for (size_t i = 0; i < n_bf; i++ ) {
+		for (size_t j = 0; j < n_bf; j++ ) {
+			norm2 += gsl_matrix_get(h_grid, i, j) *  gsl_matrix_get(h_grid, j, i);
+		}
+	}
+
+	norm2 = sqrt(norm2);
+
 #ifdef DEBUG
     for (int i = 0; i < n_bf; i++) {
         for (int j = 0; j < n_bf; j++) {
@@ -235,6 +246,10 @@ vector<double> Hamiltonian::diag() {
     gsl_eigen_symmv_sort (energies, eigvecs, GSL_EIGEN_SORT_VAL_ASC);
 
 	printf("Done! \n");
+	// According to GSL manual:
+	printf("The accuracy of the computed eigenvalues is %28.20f \n", std::numeric_limits<double>::epsilon() * norm2);
+	printf("Frobenius norm of the Hamiltonian matrix is %28.20f \n", norm2);
+
 
     vector<double> eigvals;
 
@@ -299,7 +314,7 @@ std::vector<double> diag_davidson(size_t nstates) {
 
 }
 */
-std::vector<double> diag_davidson(size_t nstates) {
+std::vector<double> Hamiltonian::diag_davidson(size_t nstates) {
 
     double tol = 1.e-6; // Convergence tollerance
 
@@ -307,7 +322,7 @@ std::vector<double> diag_davidson(size_t nstates) {
     assert ( num_alpha_str != 0 || num_beta_str != 0);
     size_t n_bf = get_basis_size();
 
-    arma::mat h_grid(n_bf, n_bf, arma::fill:zeros);
+    arma::mat h_grid(n_bf, n_bf, arma::fill::zeros);
     arma::mat eigvecs;
     arma::vec eigvals; 
 
@@ -355,15 +370,17 @@ std::vector<double> diag_davidson(size_t nstates) {
     printf("Done!\n");
 
     // Check if the matrix is indeed symmetric
-    assert (h_grid.is_symmetric());
+    //assert (h_grid.is_symmetric());
 
     printf("|max Hii| / | max Hij (i != j) | = %20.10f\n", max_d/ max_offd);
 
     printf("Starting diagonalization... ");
 
-    bool solved = arma::eigs_sym(eigvals, eigvecs, h_grid, nstates, "sa", tol);
+    //bool solved = arma::eigs_sym(eigvals, eigvecs, h_grid, nstates, "sa", tol);
+    //bool solved = arma::eigs_sym(eigvals, eigvecs, h_grid, nstates, form = "sa");
+    //bool solved = arma::eigs_sym(eigvals, eigvecs, h_grid, nstates);
 
-    assert (solved);
+    //assert (solved);
 
     printf("Done! \n");
 
@@ -721,7 +738,8 @@ double Hamiltonian::ke(size_t i, size_t j) {
 	V_ir [ ir ] = 1. / sqrt(g.gridw_r[ir]);
 	V_jr [ jr ] = 1. / sqrt(g.gridw_r[jr]);
 
-	lp.apply(V_jr.data(), R_tmp.data()); // R_tmp is supposed to contain laplacian at this point
+	//lp.apply(V_jr.data(), R_tmp.data()); // R_tmp is supposed to contain laplacian at this point
+	lp.apply_fortran(V_jr.data(), R_tmp.data()); // R_tmp is supposed to contain laplacian at this point
 	V_jr[jr] *= -1.0 * double(L * (L + 1)) / gsl_pow_2(g.r[jr]); // Changing Vj!
 
 	cblas_daxpy(g.nrad, 1.0, R_tmp.data(), 1, V_jr.data(), 1);

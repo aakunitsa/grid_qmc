@@ -11,6 +11,8 @@
 #include <gsl/gsl_sf_coupling.h>
 #include "poisson_fortran.h"
 
+extern "C" void second_deriv_(double *R, int *IA, int *NRAD); // Note: ia comes first
+
 void print_vector(std::vector<double> &&v) {
     for (auto &e : v ) 
         std::cout << e << '\t';
@@ -141,6 +143,16 @@ Laplacian::Laplacian(map<string, int> &p) : g(p) {
     d2.resize(g.nrad);
 }
 
+void Laplacian::apply_fortran(const double *f, double *lapl_f) {
+
+	// This is just a thin wrapper around second_deriv_; see below
+	int nrad = int(g.nrad);
+	int iat = 2;
+	std::copy(f, f+g.nrad, lapl_f);
+	second_deriv_(lapl_f, &iat, &nrad); // This is distructive! psi now contains laplacian of psi
+
+}
+
 void Laplacian::apply(const double *f, double *lapl_f) {
 
     size_t &N_G = g.nrad;
@@ -190,6 +202,11 @@ void Laplacian::test_laplacian() {
     std::cout << "and compared with exact (non-relativistic) results " << std::endl;
 
 
+	int nrad = int(g.nrad);
+	int iat = 2;
+
+	double max_diff = 0.0;
+
     std::vector<double> lapl_psi(g.nrad, 0.0);
     std::vector<double> psi(g.nrad, 0.0);
     double e_kin, e_pot;
@@ -204,6 +221,13 @@ void Laplacian::test_laplacian() {
         e_pot += -1.0 * 1./g.r[i] * psi[i] * psi[i] * g.gridw_r[i];
     }
     printf("E(1S) = %16.10f (%16.10f) \n", e_kin + e_pot, -0.5 * gsl_pow_int(1., -2));
+	// The following should be used for Helium only!
+	second_deriv_(psi.data(), &iat, &nrad); // This is distructive! psi now contains laplacian of psi
+	for (size_t i = 0; i < g.nrad; i++) 
+		max_diff = std::max(max_diff, std::abs(psi[i] - lapl_psi[i]));
+	printf("Maximum laplacian error is %.10e for 1S function \n", max_diff);
+	
+	
 
     // 2s state goes here!
     e_kin = 0.0;
@@ -215,6 +239,11 @@ void Laplacian::test_laplacian() {
         e_pot += -1.0 * 1./g.r[i] * psi[i] * psi[i] * g.gridw_r[i];
     }
     printf("E(2S) = %16.10f (%16.10f) \n", e_kin + e_pot, -0.5 * gsl_pow_int(2., -2));
+	max_diff = 0.0;
+	second_deriv_(psi.data(), &iat, &nrad); // This is distructive! psi now contains laplacian of psi
+	for (size_t i = 0; i < g.nrad; i++) 
+		max_diff = std::max(max_diff, std::abs(psi[i] - lapl_psi[i]));
+	printf("Maximum laplacian error is %.10e for 2S function \n", max_diff);
 
     // 3s state goes here!
     e_kin = 0.0;
@@ -226,7 +255,11 @@ void Laplacian::test_laplacian() {
         e_pot += -1.0 * 1./g.r[i] * psi[i] * psi[i] * g.gridw_r[i];
     }
     printf("E(3S) = %16.10f (%16.10f) \n", e_kin + e_pot, -0.5 * gsl_pow_int(3., -2));
-
+	max_diff = 0.0;
+	second_deriv_(psi.data(), &iat, &nrad); // This is distructive! psi now contains laplacian of psi
+	for (size_t i = 0; i < g.nrad; i++) 
+		max_diff = std::max(max_diff, std::abs(psi[i] - lapl_psi[i]));
+	printf("Maximum laplacian error is %.10e for 3S function \n", max_diff);
 
 }
 
