@@ -32,7 +32,7 @@ SUBROUTINE SECOND_DERIV(R, IA, NRAD ) bind (C, name = 'second_deriv_')
 
    H=PI/DFLOAT(RG+1)
    allocate(R1D(RG),R2D(RG))
-   write(*,*) 'RG inside SECOND_DERIV = ', RG 
+   !write(*,*) 'RG inside SECOND_DERIV = ', RG 
 
    ! FIRST DERIVATIVES
    R1D(1)=(-1764.0D0*R(1)+4320.0D0*R(2)-5400.0D0*R(3)+4800.0D0*R(4) &

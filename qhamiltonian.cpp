@@ -322,7 +322,8 @@ std::vector<double> Hamiltonian::diag_davidson(size_t nstates) {
     assert ( num_alpha_str != 0 || num_beta_str != 0);
     size_t n_bf = get_basis_size();
 
-    arma::mat h_grid(n_bf, n_bf, arma::fill::zeros);
+    //arma::sp_mat h_grid(n_bf, n_bf, arma::fill::zeros);
+    arma::sp_mat h_grid(n_bf, n_bf);
     arma::mat eigvecs;
     arma::vec eigvals; 
 
@@ -370,17 +371,18 @@ std::vector<double> Hamiltonian::diag_davidson(size_t nstates) {
     printf("Done!\n");
 
     // Check if the matrix is indeed symmetric
-    //assert (h_grid.is_symmetric());
+    assert (h_grid.is_symmetric());
 
     printf("|max Hii| / | max Hij (i != j) | = %20.10f\n", max_d/ max_offd);
 
     printf("Starting diagonalization... ");
 
+    bool solved = arma::eigs_sym(eigvals, eigvecs, h_grid, nstates, "sa");
     //bool solved = arma::eigs_sym(eigvals, eigvecs, h_grid, nstates, "sa", tol);
     //bool solved = arma::eigs_sym(eigvals, eigvecs, h_grid, nstates, form = "sa");
     //bool solved = arma::eigs_sym(eigvals, eigvecs, h_grid, nstates);
 
-    //assert (solved);
+    assert (solved);
 
     printf("Done! \n");
 

@@ -65,6 +65,7 @@ int main(int argc, char **argv) {
 	Hamiltonian h(q.params, ss);
 	h.build_basis();
 	auto e = h.diag();
+	//auto e = h.diag_davidson(10);
 
     std::sort(e.begin(), e.end());
 
