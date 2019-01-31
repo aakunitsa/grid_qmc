@@ -230,8 +230,8 @@ SUBROUTINE EXPAND2YLM(F,R,DEST,ORIG)
 
    F(AG,RG) = 1.0D0
    R(LMAX,LMAX,RG) = 1.0D0
-   print*, 'Inside expand2ylm'
-   print*, RG, AG
+   !print*, 'Inside expand2ylm'
+   !print*, RG, AG
 
    DO L=0,LMAX       ! LOOP OVER L
     DO M=-L,L        ! LOOP OVER M
@@ -580,7 +580,7 @@ SUBROUTINE SG_CONSTRUCT_GRID(NRAD, NANG)
    ! SET GRID INFORMATION IN CONVENTIONAL DFT FASHION
    M=0
    DO IA=1,NATOM
-    WRITE(6,'(A,I0,A,A,A,I0,A,I0,A,I0,A)') 'GRID FOR ATOM ',IA,' ( ',CATOM(IATOM(IA)),' ) IS ',RG,' x ',AG,' (LMAX = ',LMAX,')'
+    !WRITE(6,'(A,I0,A,A,A,I0,A,I0,A,I0,A)') 'GRID FOR ATOM ',IA,' ( ',CATOM(IATOM(IA)),' ) IS ',RG,' x ',AG,' (LMAX = ',LMAX,')'
     NGRID(IA)=RG*AG
     DO J=1,RG
      DO K=1,AG
@@ -592,7 +592,7 @@ SUBROUTINE SG_CONSTRUCT_GRID(NRAD, NANG)
      ENDDO
     ENDDO
    ENDDO
-   WRITE(6,'(A,I0)') 'NUMBER OF GRID POINTS = ',M
+   !WRITE(6,'(A,I0)') 'NUMBER OF GRID POINTS = ',M
    MAXNGRID = M
 
    RETURN

@@ -536,7 +536,7 @@ void Coulomb::test_coulomb() {
 
 }
 
-void Coulomb::test_against_poisson() {
+void Coulomb::test_against_poisson(size_t L_max4test) {
 
 	size_t num_tests = 50;
 
@@ -546,26 +546,35 @@ void Coulomb::test_against_poisson() {
 	// Initialize Poisson solver (in Fortran)
 	int nrad = g.nrad, nang = g.nang, iat = 2;
 	initialize_poisson_(&nrad, &nang, &iat); // FORTRAN subroutine call
-	
 
-	// Create an orbital set with L_max = 1
-	
+	std::cout << " The coulomb operator tests will be performed with L_max = " << L_max4test << std::endl;
     	
-	ShellSet st(1);
-	assert ( g.L_max >= 1);
+	ShellSet st(L_max4test);
+	// Print angular momentum table for the shell set under consideration
+	//std::cout << " The following pairs of L & M are present in the shell set " << std::endl;
+	//for (const auto &o : st.aorb )
+	//	std::cout << o.L << '\t' << o.M << std::endl;
+
+	assert ( g.L_max >= st.L_max);
 
 	default_random_engine gen;
-	uniform_int_distribution<int> u(0, 3);
+	uniform_int_distribution<int> u(0, st.size() - 1);
 
 	std::vector<double> rho_re(nrad * nang, 0.0), rho_im(nrad * nang, 0.0), pot_re ( nrad * nang, 0.0), pot_im(nrad * nang, 0.0); 
 
 	double max_err = 0.0, max_dev = 0.0;
 
 	for (size_t i = 0; i < num_tests; i++) {
-		auto o1 = st.aorb[u(gen)];
-		auto o2 = st.aorb[u(gen)];
-		auto o3 = st.aorb[u(gen)];
-		auto o4 = st.aorb[u(gen)];
+		auto id1 = u(gen);
+		auto id2 = u(gen);
+		auto id3 = u(gen);
+		auto id4 = u(gen);
+
+		assert (id1 < st.size() && id2 < st.size() && id3 < st.size() && id4 < st.size());
+		auto o1 = st.aorb[id1];
+		auto o2 = st.aorb[id2];
+		auto o3 = st.aorb[id3];
+		auto o4 = st.aorb[id4];
 		std::cout << " Test # " << i << std::endl;
 
 		double eri_coulomb = calc_eri(o1, o2, o3, o4);
@@ -642,6 +651,18 @@ double Coulomb::calc_eri(LM &o1, LM &o2, LM &o3, LM &o4) {
 	double eri = 0.0;
 
 	auto L_max = std::max( std::max(o1.L, o2.L), std::max(o3.L, o4.L) );
+	if (L_max > g.L_max) {
+		// Print diagnostic info
+		std::cout << "Assertion L_max <= g.L_max failed in calc_eri function " << std::endl; 
+		std::cout << " o1.L = " << o1.L << std::endl;
+		std::cout << " o2.L = " << o2.L << std::endl;
+		std::cout << " o3.L = " << o3.L << std::endl;
+		std::cout << " o4.L = " << o4.L << std::endl;
+
+		std::cout << " L_max " << L_max << std::endl;
+		std::cout << " L_max as defined in the grid class " << std::endl;
+
+	}
 	assert (L_max <= g.L_max);
 
 	for (size_t i = 0; i < g.nrad; i++) 

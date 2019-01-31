@@ -22,6 +22,12 @@ Hamiltonian::Hamiltonian(std::map<string, int> &p, ShellSet &orb) : ss(orb), lp(
 	size_t mult = p["mult"];
 	Znuc = double(p["Z"]);
 
+	// For debugging purposes compare the Shell Sets!
+	assert( ss.size() == orb.size() );
+	for (size_t i = 0; i < orb.size(); i++ ) {
+		assert ( orb.aorb[i] == ss.aorb[i] );
+	}
+
 
 	std::cout << " Number of electrons : " << nel <<  std::endl; 
 	std::cout << " Multiplicity : " << mult << std::endl; 
@@ -705,10 +711,10 @@ double Hamiltonian::ce(size_t i, size_t j, size_t k, size_t l) {
 	// Extract radial point and angular orbital index
 	
 
-	size_t iorb = i % ss.size(), ir = (i - iorb) / ss.size(),
-		   jorb = j % ss.size(), jr = (j - jorb) / ss.size(),
-		   korb = k % ss.size(), kr = (k - korb) / ss.size(),
-           lorb = l % ss.size(), lr = (l - lorb) / ss.size();
+	auto [ir, iorb] = unpack_orb_index(i);
+	auto [jr, jorb] = unpack_orb_index(j);
+	auto [kr, korb] = unpack_orb_index(k);
+	auto [lr, lorb] = unpack_orb_index(l);
 
 	if ( kr != lr || ir != jr ) return 0;
 
@@ -726,8 +732,8 @@ double Hamiltonian::ke(size_t i, size_t j) {
 	
 	assert ( i < n1porb && j < n1porb );
 	
-	size_t iorb = i % ss.size(), ir = (i - iorb) / ss.size(),
-		   jorb = j % ss.size(), jr = (j - jorb) / ss.size();
+	auto [ir, iorb] = unpack_orb_index(i);
+	auto [jr, jorb] = unpack_orb_index(j);
 
 	if (iorb != jorb) return 0.0;
 
@@ -884,8 +890,96 @@ void Hamiltonian::test1() {
 	std::cout << "Excitations are generated correctly!"  << std::endl;
 }
 
+void Hamiltonian::gen_aux_basis() {
+
+
+	double lthresh = 1e-5; // Linear dependence threshold
+	double orth_thresh = 1e-6; // Very mild orthogonalisation accuracy threshold
+
+	std::vector<double> aux(g.nrad * g.nrad, 0.0);
+	std::vector<double> bexp(g.nrad), bnorm(g.nrad);
+	std::copy(g.r.begin(), g.r.end(), bexp.begin());
+	double log2 = log(2.);
+	std::transform(bexp.begin(), bexp.end(), bexp.begin(), [&](double r) {return log2 / r;});
+
+	// Generate grid representations of the basis vectors
+	
+	for (size_t i = 0; i < g.nrad; i++) {
+		for (size_t j = 0; j < g.nrad; j++) {
+			aux[i * g.nrad + j] = exp(-bexp[i] * g.r[j]);
+		}
+	}
+
+	// Calculate the overlap matrix of the basis functions
+	// Will use armadillo classes instead of plain code
+	
+	arma::mat aux_bas(aux.data(), g.nrad, g.nrad, false); // create matrix without copying any memory
+	arma::mat W = arma::diagmat(arma::vec(g.gridw_r)); // Weight matrix
+
+	arma::mat S = aux_bas.t() * W * aux_bas;
+	arma::vec es;
+	arma::mat ev;
+
+	bool status = arma::eig_sym(es, ev, S);
+	assert ( status );
+
+	//ev.print("Eigenvectors of the original overlap matrix: ");
+	//es.print("Eigenvalues : ");
+
+	arma::uvec ps = arma::sort_index(es, "ascend");
+
+	// Determine how many vectors should be discarded based on the
+	// current lthresh
+	
+	size_t discard;
+
+	for (size_t k = 0; k < g.nrad; k++) {
+		if ( abs(es[ps[k]]) >= lthresh ) {
+			discard = k;
+			break;
+		}
+	}
+
+	arma::vec es_sorted(g.nrad - discard);
+	arma::mat ev_sorted(g.nrad, g.nrad - discard);
+
+	for ( size_t i = discard; i < g.nrad; i++ ) {
+		es_sorted[i - discard] = es[ps[i]];
+		std::copy(ev.begin_col(ps[i]), ev.end_col(ps[i]), ev_sorted.begin_col(i - discard));
+	}
+
+	//ev_sorted.print(" Sorted eigenvectors : ");
+	//es_sorted.print(" Sorted eigenvalues ( the ones below the threshold are excluded ) : ");
+
+	arma::mat invsqrt = sqrt(arma::diagmat(1./es_sorted));
+	//invsqrt.print(" Inv s^1/2 :");
+
+	// Orthogonalize eigenvectors (finally!)
+	
+	arma::mat orth_aux_bas = aux_bas * ev_sorted * invsqrt;
+
+	// Check orthogonlity with respect to weight matrix
+	
+	arma::mat diff = arma::abs(orth_aux_bas.t() * W * orth_aux_bas - arma::mat(g.nrad - discard, g.nrad - discard, arma::fill::eye)) ;
+
+	bool within_thresh = arma::all(arma::vectorise(diff) <= orth_thresh);
+
+	if (!within_thresh) 
+		std::cout << " Warning! Orthogonalisation error is large than the requested threshold! "  << std::endl;
+
+	// If the grid is small -- print new overlap matrix for visual 
+	// inspection
+	
+	if ( g.nrad <= 25 ) {
+		arma::mat overlap = orth_aux_bas.t() * W * orth_aux_bas;
+		overlap.print(" Overlap matrix for the orthogonal basis: " );
+	}
+
+}
+
 
 void Hamiltonian::fcidump() {}
+
 /*
 // Would not compile for some weird reason
 void Hamiltonian::fcidump() {

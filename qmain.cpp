@@ -42,7 +42,7 @@ int main(int argc, char **argv) {
     //l.test_laplacian();
     //Coulomb R12(q.params);
     //R12.test_coulomb();
-	//R12.test_against_poisson();
+	//R12.test_against_poisson(2);
 	//Poisson_solver qp(q.params);
 	//qp.test_poisson();
 	//qp.test_stencil();
@@ -63,6 +63,8 @@ int main(int argc, char **argv) {
     std::cout << " Diagonalizing Hamiltonian for atom with nuclear charge " << q.params["Z"] << " with " 
 		      << q.params["electrons"] << " electrons " <<  std::endl;
 	Hamiltonian h(q.params, ss);
+	h.gen_aux_basis();
+	return 0;
 	h.build_basis();
 	auto e = h.diag();
 	//auto e = h.diag_davidson(10);

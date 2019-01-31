@@ -37,7 +37,9 @@ class Hamiltonian {
 		}
 
 		void fcidump(); // Dumps the integrals in FCIQMC readable format
+		                // The radial parts of the orbitals will coincide with the aux basis radial parts from So's Mol Phys paper
 
+	    void gen_aux_basis(); // Putting this here temporarily
 		std::vector< std::vector<size_t> > alpha_str, beta_str;
 
 		// Built-in testing framework
@@ -48,7 +50,7 @@ class Hamiltonian {
 
     private:
 
-        ShellSet &ss;
+    ShellSet &ss;
 	Becke_grid g;
 	Laplacian lp;
 	Coulomb r12;
@@ -56,12 +58,25 @@ class Hamiltonian {
 
 	double Znuc;
 
-	std::tuple<size_t, size_t> unpack_str_index(size_t idx) {  
-            size_t ialpha, ibeta;
+	std::vector<double> aux_basis; // Will be initialized as needed
+
+    inline	std::tuple<size_t, size_t> unpack_str_index(size_t idx) {  
+        size_t ialpha, ibeta;
 	    ialpha = idx % ( alpha_str.size() );
 	    ibeta = (idx - ialpha ) / alpha_str.size();
 	    return std::make_tuple(ialpha, ibeta);
 	}
+
+	inline std::tuple<size_t, size_t> unpack_orb_index(size_t i) {
+
+		size_t iorb = i % ss.size(), ir = (i - iorb) / ss.size();
+		return std::make_tuple(ir, iorb);
+
+	}
+
+	//void gen_aux_basis();
+	size_t naux;
+	std::vector<double> aux_bf; // Will be initialized inside gen_aux_basis
 
 		// Elementary integrals
 

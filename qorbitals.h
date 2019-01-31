@@ -23,17 +23,37 @@ class ShellSet {
             for (int l = 1; l < int(L_max) + 1; l++) 
                 for (int m = -l; m < l + 1; m++)
                     aorb[ l * l  + m + l ] = { l, m };
+
+			// Perform a quick self-check
+
+			for (size_t i = 0; i < size(); i++) {
+				auto o = aorb[i];
+				assert ( orb_id(o) == i );
+			}
         } 
 		ShellSet(const ShellSet &s) {
 			L_max = s.L_max;
 			aorb.resize((L_max + 1) * (L_max + 1));
 			std::copy(s.aorb.cbegin(), s.aorb.cend(), aorb.begin());
-
+		}
+		void reset(size_t L_max_new) {
+			L_max = L_max_new;
+			initialize();
 		}
         size_t size() { return (L_max + 1) * (L_max + 1); }
         std::vector<LM> aorb;
         size_t L_max;
         size_t orb_id(const LM &o) { return size_t ( o.L * o.L + o.L + o.M ) ; }
+	private:
+		void initialize() {
+			// Populate aorb accordint to the current L_max
+            size_t num_aorb = (L_max + 1) * (L_max + 1);
+            aorb.resize(num_aorb);
+            aorb[0] = { 0, 0 };
+            for (int l = 1; l < int(L_max) + 1; l++) 
+                for (int m = -l; m < l + 1; m++)
+                    aorb[ l * l  + m + l ] = { l, m };
+		}
 };
 
 
