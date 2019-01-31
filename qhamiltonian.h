@@ -58,7 +58,6 @@ class Hamiltonian {
 
 	double Znuc;
 
-	std::vector<double> aux_basis; // Will be initialized as needed
 
     inline	std::tuple<size_t, size_t> unpack_str_index(size_t idx) {  
         size_t ialpha, ibeta;

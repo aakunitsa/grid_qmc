@@ -45,7 +45,14 @@ Hamiltonian::Hamiltonian(std::map<string, int> &p, ShellSet &orb) : ss(orb), lp(
 		nbeta = (nel - mult + 1) / 2;  // Can be zero
 	}
 
+#ifdef AUXBAS
+	gen_aux_basis();
+	n1porb = ss.size() * naux;
+#endif
+	
+#ifndef AUXBAS
 	n1porb = ss.size() * g.nrad; // each radial point can be combined with any angular orbital 
+#endif
 
 	assert (ss.L_max <= g.L_max);
 
@@ -703,7 +710,7 @@ double Hamiltonian::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja, si
 	}
 
 }
-
+#ifndef AUXBAS
 double Hamiltonian::ce(size_t i, size_t j, size_t k, size_t l) {
 
 	// Assumes that the orbitals are arranged in Mulliken's order, that is
@@ -761,6 +768,11 @@ double Hamiltonian::ke(size_t i, size_t j) {
 	return -0.5 * matrix_element;
 
 }
+#endif
+
+#ifdef AUXBAS
+
+#endif
 
 std::tuple<int, std::vector<size_t>, std::vector<size_t> > Hamiltonian::gen_excitation(std::vector<size_t> &i, std::vector<size_t> &j) {
 
@@ -974,6 +986,21 @@ void Hamiltonian::gen_aux_basis() {
 		arma::mat overlap = orth_aux_bas.t() * W * orth_aux_bas;
 		overlap.print(" Overlap matrix for the orthogonal basis: " );
 	}
+
+	// Flatten the array of the aux basis vectors to an std::vector;
+	// This can be used/exposed without the need of invoking armadillo
+	
+	naux = orth_aux_bas.n_cols;
+	aux_bf.resize(naux * g.nrad);
+
+	// Storage convention: Fortran
+	std::copy(orth_aux_bas.begin(), orth_aux_bas.end(), aux_bf.begin());
+
+	// Check
+	size_t col_idx = size_t(naux / 2);
+	arma::vec test_col(&aux_bf[col_idx * g.nrad], g.nrad, false);
+	double max_diff_col = arma::max(arma::abs(test_col - orth_aux_bas.col(col_idx)));
+	assert ( max_diff_col < 1e-12);
 
 }
 
