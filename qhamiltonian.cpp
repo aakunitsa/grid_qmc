@@ -481,7 +481,7 @@ double Hamiltonian::evaluate_kinetic(size_t is, size_t js, int type) {
 	}
 }
 
-
+#ifndef AUXBAS
 double Hamiltonian::evaluate_nuc(size_t is, size_t js, int type) {
 
 	// Note that is and js as spin string indeces; We need to process them
@@ -517,6 +517,62 @@ double Hamiltonian::evaluate_nuc(size_t is, size_t js, int type) {
 
 	return result;
 }
+#endif
+#ifdef AUXBAS
+double Hamiltonian::evaluate_nuc(size_t is, size_t js, int type) {
+
+	// Note that is and js as spin string indeces; We need to process them
+	// to obtain orbital index lists
+	//
+	
+    //arma::vec rad_i(&aux_bf[ir * g.nrad], g.nrad, false);
+	double result = 0.0;
+
+	auto &idet = (type == ALPHA ? alpha_str[is] : beta_str[is]);
+	auto &jdet = (type == ALPHA ? alpha_str[js] : beta_str[js]);
+
+	auto [p, from, to] = gen_excitation(jdet, idet);
+
+	assert(from.size() == to.size());
+
+	size_t ex_order = from.size();
+
+	if ( ex_order > 1) {
+
+		return 0.0;
+
+	} else if ( ex_order == 1) {
+		size_t  jr = (from[0] - from[0] % ss.size()) / ss.size();
+		size_t  ir = (to[0] - to[0] % ss.size()) / ss.size();
+		assert ( ir < naux  && jr < naux);
+        arma::vec rad_i(&aux_bf[ir * g.nrad], g.nrad, false);
+        arma::vec rad_j(&aux_bf[jr * g.nrad], g.nrad, false);
+
+		if ((from[0] % ss.size()) != (to[0] % ss.size())) return 0.0;
+
+	    for ( size_t k = 0; k < g.nrad ; k++) 
+			result += -Znuc / g.r[k] * rad_j[k] * rad_i[k] * g.gridw_r[k];
+
+	} else {
+
+		assert ( is == js );
+		for (const auto &i : alpha_str[is] ) {
+			size_t  ir = (i - i % ss.size()) / ss.size();
+			assert ( ir < naux );
+            arma::vec rad_i(&aux_bf[ir * g.nrad], g.nrad, false);
+
+			for ( size_t k = 0; k < g.nrad ; k++) 
+				result += -Znuc / g.r[k] * rad_i[k] * rad_i[k] * g.gridw_r[k];
+		}
+
+	}
+
+	return result;
+}
+
+#endif
+
+
 /*
 double Hamiltonian::evaluate_coulomb(size_t ia, size_t ib, size_t ja, size_t jb) {
 
@@ -813,10 +869,11 @@ double Hamiltonian::ke(size_t i, size_t j) {
 	
 	assert ( i < n1porb && j < n1porb );
 	
-	if (iorb != jorb) return 0.0;
 
 	auto [ir, iorb] = unpack_orb_index(i);
 	auto [jr, jorb] = unpack_orb_index(j);
+
+	if (iorb != jorb) return 0.0;
 
 	int &L = ss.aorb[iorb].L;
 
@@ -832,7 +889,7 @@ double Hamiltonian::ke(size_t i, size_t j) {
 	double matrix_element = 0.0;
 
 	for (size_t k = 0; k < g.nrad; k++) {
-            double tmp = R_tmp[k] - double(L * (L + 1)) / gsl_pow_2(g.r[k]) * rad_j[k]
+            double tmp = R_tmp[k] - double(L * (L + 1)) / gsl_pow_2(g.r[k]) * rad_j[k];
             matrix_element += rad_i [ k ] * g.gridw_r[ k ] * tmp;
         }
 

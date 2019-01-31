@@ -63,8 +63,7 @@ int main(int argc, char **argv) {
     std::cout << " Diagonalizing Hamiltonian for atom with nuclear charge " << q.params["Z"] << " with " 
 		      << q.params["electrons"] << " electrons " <<  std::endl;
 	Hamiltonian h(q.params, ss);
-	h.gen_aux_basis();
-	return 0;
+	//h.gen_aux_basis();
 	h.build_basis();
 	auto e = h.diag();
 	//auto e = h.diag_davidson(10);
