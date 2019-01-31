@@ -771,6 +771,75 @@ double Hamiltonian::ke(size_t i, size_t j) {
 #endif
 
 #ifdef AUXBAS
+double Hamiltonian::ce(size_t i, size_t j, size_t k, size_t l) {
+
+	// Assumes that the orbitals are arranged in Mulliken's order, that is
+	// i and j refer to the first electron whereas k and l refer to the second
+	// Extract radial point and angular orbital index
+	
+
+	auto [ir, iorb] = unpack_orb_index(i);
+	auto [jr, jorb] = unpack_orb_index(j);
+	auto [kr, korb] = unpack_orb_index(k);
+	auto [lr, lorb] = unpack_orb_index(l);
+
+        double m = 0.0; // Matrix element
+
+        arma::vec rad_i(&aux_bf[ir * g.nrad], g.nrad, false);
+        arma::vec rad_j(&aux_bf[jr * g.nrad], g.nrad, false);
+        arma::vec rad_k(&aux_bf[kr * g.nrad], g.nrad, false);
+        arma::vec rad_l(&aux_bf[lr * g.nrad], g.nrad, false);
+
+        for (size_t ii = 0; ii < g.nrad ; ii++) {
+            for (size_t jj = 0; jj < g.nrad ; jj++) {
+                double rad = rad_i[ii] * rad_j[ii] * rad_k[jj] * rad_l[jj];
+                m += r12.eval_simple(g.r[jj], g.r[ii], ss.aorb[iorb], ss.aorb[jorb], ss.aorb[korb], ss.aorb[lorb]) * g.gridw_r[ii] *  g.gridw_r[jj] *rad;
+            }
+        }
+                
+
+
+	return m ;
+
+}
+
+double Hamiltonian::ke(size_t i, size_t j) {
+
+	// Extract angular momentum and radial grid point number from is and 
+	// js; we will assume the following packing scheme for indeces: 1st g.p {angular orbitals} 
+	// 2nd g.p {angular orbitals } and so on such that the index of the radial grid point 
+	// changes slowly as opposed to the index of the angular orbital
+	// According to this convention:
+	
+	assert ( i < n1porb && j < n1porb );
+	
+	if (iorb != jorb) return 0.0;
+
+	auto [ir, iorb] = unpack_orb_index(i);
+	auto [jr, jorb] = unpack_orb_index(j);
+
+	int &L = ss.aorb[iorb].L;
+
+        double m = 0.0; // Matrix element
+
+        arma::vec rad_i(&aux_bf[ir * g.nrad], g.nrad, false);
+        arma::vec rad_j(&aux_bf[jr * g.nrad], g.nrad, false);
+
+	std::vector<double> R_tmp(g.nrad, 0.0); // Temporary storage for transformed V - vectors
+
+	lp.apply_fortran(&aux_bf[jr * g.nrad], R_tmp.data()); // R_tmp is supposed to contain laplacian at this point
+
+	double matrix_element = 0.0;
+
+	for (size_t k = 0; k < g.nrad; k++) {
+            double tmp = R_tmp[k] - double(L * (L + 1)) / gsl_pow_2(g.r[k]) * rad_j[k]
+            matrix_element += rad_i [ k ] * g.gridw_r[ k ] * tmp;
+        }
+
+
+	return -0.5 * matrix_element;
+
+}
 
 #endif
 
