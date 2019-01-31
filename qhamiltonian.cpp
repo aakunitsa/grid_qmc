@@ -11,6 +11,12 @@
 #include <gsl/gsl_matrix.h>
 #include <gsl/gsl_cblas.h>
 
+#ifdef AUXBAS
+#include "qorbitals.h"
+#include "poisson_fortran.h"
+#include <gsl/gsl_math.h>
+#endif
+
 #define ALPHA 1
 #define BETA 0
 
@@ -846,16 +852,102 @@ double Hamiltonian::ce(size_t i, size_t j, size_t k, size_t l) {
         arma::vec rad_k(&aux_bf[kr * g.nrad], g.nrad, false);
         arma::vec rad_l(&aux_bf[lr * g.nrad], g.nrad, false);
 
+		
+        /* Mute this code for now
         for (size_t ii = 0; ii < g.nrad ; ii++) {
             for (size_t jj = 0; jj < g.nrad ; jj++) {
                 double rad = rad_i[ii] * rad_j[ii] * rad_k[jj] * rad_l[jj];
                 m += r12.eval_simple(g.r[jj], g.r[ii], ss.aorb[iorb], ss.aorb[jorb], ss.aorb[korb], ss.aorb[lorb]) * g.gridw_r[ii] *  g.gridw_r[jj] *rad;
             }
         }
-                
+		*/
 
+		
 
-	return m ;
+		// Will use Poisson solver to generate integrals
+		// This is not practical for larger scale calculations; here I decided to try that for testing 
+		// purposes
+		
+		// 1. Generate density for the first orbital pair, say (i, j)
+
+		std::vector<double> den_ij_re(g.nrad * g.nang, 0.0), den_ij_im(g.nrad * g.nang, 0.0);
+		std::vector<double> pot_ij_re(g.nrad * g.nang, 0.0), pot_ij_im(g.nrad * g.nang, 0.0);
+
+		auto &oi = ss.aorb[iorb], &oj = ss.aorb[jorb], &ok = ss.aorb[korb], &ol = ss.aorb[lorb];
+
+		for ( size_t r = 0; r < g.nrad ; r++) {
+			double rpart = rad_i[r] * rad_j[r];
+			for (size_t a = 0; a < g.nang; a++) {
+				// extract (theta, phi)
+
+				auto [th, p] = g.thetaphi_ang[a];
+				auto [rei, imi] = Y(oi.L, oi.M, th, p);
+				auto [rej, imj] = Y(oj.L, oj.M, th, p);
+
+				den_ij_re[r * g.nang + a] = rpart * (rei * rej + imi * imj);
+				den_ij_im[r * g.nang + a] = rpart * (rei * imj - imi * rej);
+				
+			}
+		}
+
+		// 2. Use Poisson solver to calculate corresponding potenials
+		int iatom = 2, nrad = int ( g.nrad ), nang = int ( g.nang );
+
+		initialize_poisson_(&nrad, &nang, &iatom);
+		construct_potential_(den_ij_re.data(), pot_ij_re.data());
+		construct_potential_(den_ij_im.data(), pot_ij_im.data());
+		finalize_poisson_();
+
+		// 3. Contract the potentials with the other orbital density; the latter won't be generated explicitly
+		// Imaginary part of the integral is saved for debugging purposes but is not needed for the Hamiltonian 
+		// generation 
+
+		double m_im = 0.0, m_re = 0.0;
+		double rthresh = 1.e-3, ithresh = 1.e-6; // This is a very loose threshold
+
+		for ( size_t r = 0; r < g.nrad ; r++) {
+			double rpart = rad_k[r] * rad_l[r];
+			for ( size_t a = 0; a < g.nang; a++ ) {
+				auto [th, p] = g.thetaphi_ang[a];
+				auto [rek, imk] = Y(ok.L, ok.M, th, p);
+				auto [rel, iml] = Y(ol.L, ol.M, th, p);
+				
+				double tmp_re = rpart * ((rek * rel + imk * iml) * pot_ij_re[r * g.nang + a] - rpart * (rek * iml - imk * rel) * pot_ij_im[r * g.nang + a]);
+				double tmp_im = rpart * ((rek * rel + imk * iml) * pot_ij_im[r * g.nang + a] + rpart * (rek * iml - imk * rel) * pot_ij_re[r * g.nang + a]);
+
+				m_re += 4. * M_PI * g.gridw_a[a] * g.gridw_r[r] * tmp_re;
+				m_im += 4. * M_PI * g.gridw_a[a] * g.gridw_r[r] * tmp_im;
+
+			}
+		}
+		if ( std::abs(m_im) >= ithresh) {
+			std::cout << " In Poisson solver: ";
+			std::cout << std::scientific << m_re << " + i * " <<  m_im << std::endl;
+		}
+		//assert( std::abs(m_im) < ithresh);
+		/*
+		if ( std::abs(m_im) >= ithresh || std::abs(m_re - m) >= rthresh ) {
+			// Just issue a warning and return m_re
+			std::cout << " Numerical results produced by Poisson solver disagree with Laplace expansion based calculation! " << std::endl;
+			std::cout << " In Poisson solver: ";
+			std::cout << std::scientific << m_re << " + i * " <<  m_im << std::endl;
+			std::cout << " Laplace: ";
+			std::cout << std::scientific << m << std::endl;
+			// Calculate some extra diagnostics 
+
+			double dot_ij = 0.0;
+
+			for ( size_t r = 0; r < g.nrad; r++) 
+				dot_ij += g.gridw_r[r] * rad_i[r] * rad_j[r];
+		    
+			std::cout << " Dot product for the first orbital pair " << ir << jr << " = " << std::scientific << dot_ij << std::endl;
+
+		}
+		*/
+	//	assert( std::abs(m_im) < ithresh && std::abs(m - m_re) < rthresh);
+    // Note: at this point m is returned; Poisson solver is used just for testing purposes
+	//return m ;
+	return m_re;
 
 }
 
@@ -1061,6 +1153,9 @@ void Hamiltonian::gen_aux_basis() {
 	bool status = arma::eig_sym(es, ev, S);
 	assert ( status );
 
+	std::cout << " Maximum eigenvalue of the overlap matrix is " << std::scientific << es.max() << std::endl;
+	std::cout << " Minimum eigenvalue of the overlap matrix is " << std::scientific << es.min() << std::endl;
+
 	//ev.print("Eigenvectors of the original overlap matrix: ");
 	//es.print("Eigenvalues : ");
 
@@ -1069,10 +1164,10 @@ void Hamiltonian::gen_aux_basis() {
 	// Determine how many vectors should be discarded based on the
 	// current lthresh
 	
-	size_t discard;
+	size_t discard = 0;
 
 	for (size_t k = 0; k < g.nrad; k++) {
-		if ( abs(es[ps[k]]) >= lthresh ) {
+		if ( abs(es[ps[k]]) >= lthresh && es[ps[k]] > 0.0 ) {
 			discard = k;
 			break;
 		}
@@ -1092,9 +1187,28 @@ void Hamiltonian::gen_aux_basis() {
 	arma::mat invsqrt = sqrt(arma::diagmat(1./es_sorted));
 	//invsqrt.print(" Inv s^1/2 :");
 
-	// Orthogonalize eigenvectors (finally!)
+	// Orthogonalize eigenvectors  (symmetric)
 	
 	arma::mat orth_aux_bas = aux_bas * ev_sorted * invsqrt;
+
+	// Normally this should be enough; however, for larger grid sizes due to the relatively 
+	// large eigenvalues of the overlap matrix - numerical errors tend to accumulate breaking
+	// orthogonality; For this reason the basis needs to be Gram-Schmidt re-orthogonalized 
+	// _after_ symmetric orthogonalisation; This is very important! Normally we would use QR 
+	// decomposition but since the dot product definition involves radial grid weights - the
+	// orthogonalization should be performed manually
+	
+	arma::mat q(orth_aux_bas.n_rows, orth_aux_bas.n_cols);
+
+	q.col(0) = orth_aux_bas.col(0) / sqrt(arma::as_scalar(orth_aux_bas.col(0).t() * W * orth_aux_bas.col(0)));
+	for (size_t ic = 1; ic < orth_aux_bas.n_cols; ic++) {
+		arma::vec u = orth_aux_bas.col(ic);
+		for (size_t prev = 0; prev < ic; prev++) 
+			u -= arma::as_scalar(q.col(prev).t() * W * orth_aux_bas.col(ic)) * q.col(prev);
+		q.col(ic) = u / sqrt(arma::as_scalar(u.t() * W * u));
+	}
+
+	orth_aux_bas = q; // Copy the new orthogonalized basis and work with it from now on
 
 	// Check orthogonlity with respect to weight matrix
 	
@@ -1102,8 +1216,10 @@ void Hamiltonian::gen_aux_basis() {
 
 	bool within_thresh = arma::all(arma::vectorise(diff) <= orth_thresh);
 
-	if (!within_thresh) 
+	if (!within_thresh) {
 		std::cout << " Warning! Orthogonalisation error is large than the requested threshold! "  << std::endl;
+		std::cout << diff.max() << std::endl;
+	}
 
 	// If the grid is small -- print new overlap matrix for visual 
 	// inspection

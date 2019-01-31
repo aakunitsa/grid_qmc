@@ -1,6 +1,7 @@
 MF = Makefile
 FC = gfortran
-FFLAGS = -O0 -fcheck=all
+#FFLAGS = -O0 -fcheck=all
+FFLAGS = -O2
 
 SRC= pmodules_stripped.f90 ppoisson.f90 plebedev.f
 
