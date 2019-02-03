@@ -38,7 +38,8 @@ class Hamiltonian {
 
 		void fcidump(); // Dumps the integrals in FCIQMC readable format
 		                // The radial parts of the orbitals will coincide with the aux basis radial parts from So's Mol Phys paper
-
+        
+		void read_porbs();
 	    void gen_aux_basis(); // Putting this here temporarily
 		std::vector< std::vector<size_t> > alpha_str, beta_str;
 
@@ -74,8 +75,9 @@ class Hamiltonian {
 	}
 
 	//void gen_aux_basis();
-	size_t naux;
+	size_t naux, porb;
 	std::vector<double> aux_bf; // Will be initialized inside gen_aux_basis
+	std::vector<double> paux_bf; // Stores the orbitals obtained from polymer; in contrast to aux_bf those are represented on the cartesian product of radial and angular grids
 
 		// Elementary integrals
 

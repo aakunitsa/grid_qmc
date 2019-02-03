@@ -80,7 +80,7 @@ SUBROUTINE CONSTRUCT_potential(ORB1,ORB2) bind (C, name = 'construct_potential_'
    INTEGER :: I,J,L,M,INFO,IA,IB
    INTEGER :: INDX(RG)
 
-   print*, 'Maxngrid = ', MAXNGRID
+   !print*, 'Maxngrid = ', MAXNGRID
 
    ORB2=0.0D0
    DO IA=1,NATOM

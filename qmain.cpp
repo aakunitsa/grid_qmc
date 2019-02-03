@@ -63,21 +63,19 @@ int main(int argc, char **argv) {
     std::cout << " Diagonalizing Hamiltonian for atom with nuclear charge " << q.params["Z"] << " with " 
 		      << q.params["electrons"] << " electrons " <<  std::endl;
 	Hamiltonian h(q.params, ss);
+	h.read_porbs();
 	//h.gen_aux_basis();
-	h.build_basis();
-	auto e = h.diag();
+	//h.build_basis();
+	//auto e = h.diag();
 	//auto e = h.diag_davidson(10);
-
+/*
     std::sort(e.begin(), e.end());
 
     std::cout << " Printing the first 50 eigenvalues of the hamiltonian " << std::endl;
     std::cout << std::scientific;
 	for (size_t i = 0; i < std::min(size_t(50), e.size()); i++) 
 		std::cout << e[i] << std::endl;
-
-
-
-
+*/
 
 
 
