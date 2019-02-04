@@ -38,6 +38,7 @@ class Hamiltonian {
 
 		void fcidump(); // Dumps the integrals in FCIQMC readable format
 		                // The radial parts of the orbitals will coincide with the aux basis radial parts from So's Mol Phys paper
+		void pfcidump(); // Same as fcidump but prints eri-s calculated with the orbitals extracted from Polymer
         
 		void read_porbs();
 	    void gen_aux_basis(); // Putting this here temporarily

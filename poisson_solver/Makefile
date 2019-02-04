@@ -3,7 +3,7 @@ FC = gfortran
 #FFLAGS = -O0 -fcheck=all
 FFLAGS = -O2
 
-SRC= pmodules_stripped.f90 ppoisson.f90 plebedev.f
+SRC= pmodules_stripped.f90 ppoisson.f90 plebedev.f pangular.f90
 
 #
 # No need to edit below this line

@@ -12,6 +12,8 @@
 #include "poisson_fortran.h"
 
 extern "C" void second_deriv_(double *R, int *IA, int *NRAD); // Note: ia comes first
+extern "C" int construct_grid_ang_(int *ag, double *x, double *y, double *z, double *w); 
+
 
 void print_vector(std::vector<double> &&v) {
     for (auto &e : v ) 
@@ -68,6 +70,11 @@ void Becke_grid::build_angular() {
             double th, p;
             ld_by_order(nang, x, y, z, gridw_a.data());
             L_max = size_t(precision_table(j)/2.);
+#ifdef POLYMER
+			// Override the grid produced by CXX code and replace it with the one used in fortran
+			int na = int(nang);
+			L_max = (size_t)construct_grid_ang_(&na, x, y, z, gridw_a.data());
+#endif
             for (size_t i = 0; i < nang; i++) {
                 xyz_ang[i][0] = x[i];
                 xyz_ang[i][1] = y[i];

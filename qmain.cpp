@@ -64,18 +64,20 @@ int main(int argc, char **argv) {
 		      << q.params["electrons"] << " electrons " <<  std::endl;
 	Hamiltonian h(q.params, ss);
 	h.read_porbs();
+	h.pfcidump(); // For comparison with the actual polymer fcidump (produced by fortran code)
+	return 0;
 	//h.gen_aux_basis();
-	//h.build_basis();
-	//auto e = h.diag();
+	h.build_basis();
+	auto e = h.diag();
 	//auto e = h.diag_davidson(10);
-/*
+
     std::sort(e.begin(), e.end());
 
     std::cout << " Printing the first 50 eigenvalues of the hamiltonian " << std::endl;
     std::cout << std::scientific;
 	for (size_t i = 0; i < std::min(size_t(50), e.size()); i++) 
 		std::cout << e[i] << std::endl;
-*/
+
 
 
 

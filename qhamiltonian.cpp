@@ -65,6 +65,7 @@ Hamiltonian::Hamiltonian(std::map<string, int> &p, ShellSet &orb) : ss(orb), lp(
 #endif
 
 #ifdef POLYMER
+	read_porbs();
 	n1porb = porb;
 #endif
 	
@@ -641,7 +642,7 @@ double Hamiltonian::evaluate_nuc(size_t is, size_t js, int type) {
 
 	    for ( size_t k = 0; k < g.nrad ; k++) 
 			for ( size_t l = 0; l < g.nang; l++) 
-				result += -Znuc / g.r[k] * orb_j[k * g.nang + l] * orb_i[k * g.nang + l] * g.gridw_r[k] *  g.gridw_a[l];
+				result += -Znuc / g.r[k] * orb_j[k * g.nang + l] * orb_i[k * g.nang + l] * g.gridw_r[k] *  g.gridw_a[l] * 4. * M_PI;
 		
 
 	} else {
@@ -651,7 +652,7 @@ double Hamiltonian::evaluate_nuc(size_t is, size_t js, int type) {
 			arma::vec orb_i(&paux_bf[i * ngrid], ngrid, false);
 			for ( size_t k = 0; k < g.nrad ; k++) 
 				for ( size_t l = 0; l < g.nang; l++) 
-					result += -Znuc / g.r[k] * orb_i[k * g.nang + l] * orb_i[k * g.nang + l] * g.gridw_r[k] *  g.gridw_a[l];
+					result += -Znuc / g.r[k] * orb_i[k * g.nang + l] * orb_i[k * g.nang + l] * g.gridw_r[k] *  g.gridw_a[l]* 4. * M_PI;
 		}
 
 	}
@@ -1498,6 +1499,64 @@ void Hamiltonian::fcidump() {
 	int_file.close();
 
 }
+
+// The following function should only be invoked if
+// working with Polymer orbitals; otherwise - disable
+
+void Hamiltonian::pfcidump() {
+
+#ifdef POLYMER
+
+	int iatom = 2, nrad = int(g.nrad) , nang = int(g.nang);
+	initialize_poisson_(&nrad, &nang, &iatom);
+	
+	fstream int_file;
+	int_file.open("QFCIDUMP.POLY", std::ios::out);
+	assert(int_file.is_open());
+
+	size_t ngrid = g.nrad * g.nang;
+
+	for (size_t i = 0; i < porb; i++) {
+		for (size_t j = i; j < porb; j++) {
+
+			double h = ke(i, j);
+
+			arma::vec orb_i(&paux_bf[i * ngrid], ngrid, false);
+			arma::vec orb_j(&paux_bf[j * ngrid], ngrid, false);
+
+			for ( size_t k = 0; k < g.nrad ; k++) 
+				for ( size_t l = 0; l < g.nang; l++) 
+					h += -Znuc / g.r[k] * orb_j[k * g.nang + l] * orb_i[k * g.nang + l] * g.gridw_r[k] *  g.gridw_a[l] * 4. * M_PI;
+
+			int_file << i + 1 << '\t' << j + 1 << '\t' << 0 << '\t' << 0 << '\t';
+			int_file << std::scientific << std::setprecision(20) << std::setw(28) << h << std::endl;
+			
+		}
+	}
+
+	// (Annoying) Two electron part 
+	
+	for ( size_t i = 0; i < porb; i++) {
+		for ( size_t j = i; j < porb; j++) {
+			for ( size_t k = 0; k < i + 1; k++) {
+				for ( size_t l = k; l < (k == i ? j + 1 : porb); l++) {
+					// Calculate (ij|kl) and dump it to the text file
+					double eri = ce(i, j, k, l);
+					int_file << i + 1 << '\t' << j + 1 << '\t' << k + 1 << '\t' << l + 1 << '\t';
+					int_file << std::scientific << std::setprecision(20) << std::setw(28) << eri << std::endl;
+				}
+			}
+		}
+	}
+
+	int_file.close();
+
+	finalize_poisson_();
+
+#endif
+
+}
+
 
 void Hamiltonian::read_porbs() {
 
