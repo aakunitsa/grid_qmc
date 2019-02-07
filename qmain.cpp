@@ -65,6 +65,8 @@ int main(int argc, char **argv) {
 	Hamiltonian h(q.params, ss);
 	h.read_porbs();
 	h.pfcidump(); // For comparison with the actual polymer fcidump (produced by fortran code)
+	//h.compare_fcidump();
+
 	return 0;
 	//h.gen_aux_basis();
 	h.build_basis();

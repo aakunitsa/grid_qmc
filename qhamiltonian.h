@@ -39,6 +39,11 @@ class Hamiltonian {
 		void fcidump(); // Dumps the integrals in FCIQMC readable format
 		                // The radial parts of the orbitals will coincide with the aux basis radial parts from So's Mol Phys paper
 		void pfcidump(); // Same as fcidump but prints eri-s calculated with the orbitals extracted from Polymer
+
+		void compare_fcidump();
+
+		std::map<int, std::array<size_t, 4> > eri_lookup; // represents (efficient) mapping between flat integer indeces and orbital indeces for the ERI matrix
+		void gen_eri_lookup(size_t num_orbitals); // Generates lookup table for ERI-s
         
 		void read_porbs();
 	    void gen_aux_basis(); // Putting this here temporarily

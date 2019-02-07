@@ -11,6 +11,7 @@
 #include <gsl/gsl_vector.h>
 #include <gsl/gsl_matrix.h>
 #include <gsl/gsl_cblas.h>
+#include <tuple> // for tie function
 
 #ifdef AUXBAS
 #include "qorbitals.h"
@@ -233,12 +234,15 @@ vector<double> Hamiltonian::diag() {
 
 			double Hij = 0.0;
 
-			Hij += evaluate_kinetic(ia, ja, ALPHA) * (ib == jb ? 1. : 0.);
-			Hij += evaluate_nuc(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
+			//Hij += evaluate_kinetic(ia, ja, ALPHA) * (ib == jb ? 1. : 0.);
+			//Hij += evaluate_nuc(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
+			Hij += 0.5 * (evaluate_kinetic(ia, ja, ALPHA) * (ib == jb ? 1. : 0.) + evaluate_kinetic(ja, ia, ALPHA) * (ib == jb ? 1. : 0.));
+			Hij += 0.5 * (evaluate_nuc(ia, ja, ALPHA)* (ib == jb ? 1. : 0.) + evaluate_nuc(ja, ia, ALPHA)* (ib == jb ? 1. : 0.));
 			if (nel > 1) {
 				// Check if the string index is within bounds 
 				assert ( ia < num_alpha_str && ja < num_alpha_str );
-				Hij += evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
+				//Hij += evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
+				Hij += 0.5 * (evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.) + evaluate_coulomb(ja, ia, ALPHA)* (ib == jb ? 1. : 0.));
 			}
 			if (beta_str.size() > 0) {
 				Hij += evaluate_kinetic(ib, jb, BETA)* (ia == ja ? 1. : 0.);
@@ -503,6 +507,7 @@ double Hamiltonian::evaluate_kinetic(size_t is, size_t js, int type) {
 
 	if (from.size() ==  0) {
 		// Means that the two orbital strings are equivalent (should be literaly identical)
+		assert ( js_v[0] == is_v[0] && js_v[1] == is_v[1] );
 		double integral = 0.0;
 		for (size_t i  = 0; i < (type == ALPHA ? nalpha : nbeta); i++ )
 			integral += ke(is_v[i], is_v[i]);
@@ -511,7 +516,17 @@ double Hamiltonian::evaluate_kinetic(size_t is, size_t js, int type) {
 
 	} else if (from.size() == 1) {
 
-		return p*ke(from[0], to[0]);
+		// The following will only be valid for 2e atoms and 
+		// is not generally true. Will be turned off for arbitrary 
+		// multielectron atoms
+
+		if (js_v[0] == is_v[0] || js_v[1] == is_v[1] ) {
+			assert (p == 1);
+		} else {
+			assert (p == -1);
+		}
+
+		return p*ke(to[0], from[0]);
 
 	} else {
 		return 0;
@@ -688,6 +703,16 @@ double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 		if (from.size() == 2) return p * (ce(to[0], from[0], to[1], from[1]) - ce(to[0], from[1], to[1], from[0]));
 
 	} else if (ex_order == 1) {
+
+		// The following will only be valid for 2e atoms and 
+		// is not generally true. Will be turned off for arbitrary 
+		// multielectron atoms
+
+		if (j_s[0] == i_s[0] || j_s[1] == i_s[1] ) {
+			assert (p == 1);
+		} else {
+			assert (p == -1);
+		}
 
 		double matrix_element = 0.0;
 
@@ -1059,9 +1084,9 @@ double Hamiltonian::ke(size_t i, size_t j) {
 				auto [re, im] = Y(L, M, th, p);
 
 				di_re += 4. * M_PI * g.gridw_a[a] * re * orb_i[r * g.nang + a];
-				di_im += 4. * M_PI * g.gridw_a[a] * im * orb_i[r * g.nang + a];
+				di_im -= 4. * M_PI * g.gridw_a[a] * im * orb_i[r * g.nang + a];
 				dj_re += 4. * M_PI * g.gridw_a[a] * re * orb_j[r * g.nang + a];
-				dj_im += 4. * M_PI * g.gridw_a[a] * im * orb_j[r * g.nang + a];
+				dj_im -= 4. * M_PI * g.gridw_a[a] * im * orb_j[r * g.nang + a];
 
 			}
 
@@ -1077,6 +1102,8 @@ double Hamiltonian::ke(size_t i, size_t j) {
 	std::vector<double> lapl_re(g.nrad, 0.0), lapl_im(g.nrad, 0.0);
 	
 	for ( size_t o = 0; o < ss.size(); o++) {
+		std::fill(lapl_re.begin(), lapl_re.end(), 0.0);
+		std::fill(lapl_im.begin(), lapl_im.end(), 0.0);
 		int L = ss.aorb[o].L;
 		lp.apply_fortran(&Rj_re[o * g.nrad], lapl_re.data()); 
 		lp.apply_fortran(&Rj_im[o * g.nrad], lapl_im.data()); 
@@ -1084,15 +1111,15 @@ double Hamiltonian::ke(size_t i, size_t j) {
 
 			double t_re = 0.0, t_im = 0.0;
 
-			t_re = lapl_re[r] - double(L * (L + 1))/ gsl_pow_2(g.r[r]) * Rj_re[o * g.nrad + r];
-			t_im = lapl_im[r] - double(L * (L + 1))/ gsl_pow_2(g.r[r]) * Rj_im[o * g.nrad + r];
-			m_re += g.gridw_r[r] * (Ri_re[o * g.nrad + r] * t_re + Ri_im[o * g.nrad + r] * t_im);
-			m_im += g.gridw_r[r] * (Ri_re[o * g.nrad + r] * t_im - Ri_im[o * g.nrad + r] * t_re);
+			t_re = lapl_re[r] - (double(L * (L + 1))/ gsl_pow_2(g.r[r]) * Rj_re[o * g.nrad + r]);
+			t_im = lapl_im[r] - (double(L * (L + 1))/ gsl_pow_2(g.r[r]) * Rj_im[o * g.nrad + r]);
+			m_re += (g.gridw_r[r] * (Ri_re[o * g.nrad + r] * t_re + Ri_im[o * g.nrad + r] * t_im));
+			m_im += (g.gridw_r[r] * (Ri_re[o * g.nrad + r] * t_im - Ri_im[o * g.nrad + r] * t_re));
 
 		}
 	}
 
-	assert ( std::abs(m_im) < 1e-6);
+	assert ( std::abs(m_im) < 1e-8);
 	
 	return -0.5 * m_re;
 
@@ -1519,14 +1546,20 @@ void Hamiltonian::pfcidump() {
 	for (size_t i = 0; i < porb; i++) {
 		for (size_t j = i; j < porb; j++) {
 
-			double h = ke(i, j);
+			//double h = ke(i, j); 
+			double h = ke(j, i); 
+			//double h = 0.0;
 
+            // The following code produces correct results
+			// ----
 			arma::vec orb_i(&paux_bf[i * ngrid], ngrid, false);
 			arma::vec orb_j(&paux_bf[j * ngrid], ngrid, false);
 
 			for ( size_t k = 0; k < g.nrad ; k++) 
 				for ( size_t l = 0; l < g.nang; l++) 
-					h += -Znuc / g.r[k] * orb_j[k * g.nang + l] * orb_i[k * g.nang + l] * g.gridw_r[k] *  g.gridw_a[l] * 4. * M_PI;
+					h += (-Znuc / g.r[k] * orb_j[k * g.nang + l] * orb_i[k * g.nang + l] * g.gridw_r[k] *  g.gridw_a[l] * 4. * M_PI);
+
+			// ----
 
 			int_file << i + 1 << '\t' << j + 1 << '\t' << 0 << '\t' << 0 << '\t';
 			int_file << std::scientific << std::setprecision(20) << std::setw(28) << h << std::endl;
@@ -1541,9 +1574,31 @@ void Hamiltonian::pfcidump() {
 			for ( size_t k = 0; k < i + 1; k++) {
 				for ( size_t l = k; l < (k == i ? j + 1 : porb); l++) {
 					// Calculate (ij|kl) and dump it to the text file
-					double eri = ce(i, j, k, l);
+					double eri[8];
+					eri[0] =  ce(i, j, k, l);
+					eri[1] = ce(j, i, k, l);
+					eri[2] = ce(i, j, l, k);
+					eri[3] = ce(j, i, l, k);
+					eri[4] = ce(k, l, i, j);
+					eri[5] = ce(l, k, i, j);
+					eri[6] = ce(k, l, j, i);
+					eri[7] = ce(l, k, j, i);
+
+					double assym = 0.0;
+
+					for (size_t i = 0 ; i < 8; i++) 
+						for ( size_t j = 0; j < 8; j++) {
+							assym = std::max(assym, std::abs(eri[i] - eri[j]));
+						}
+
+					if ( assym > 1e-2 ) {
+						std::cout << " Detected significant symmetry breaking in ERI matrix " << std::endl;
+						std::cout << " Assym = " << assym << std::endl;
+					}
+					assert ( assym <= 1e-2 );
+
 					int_file << i + 1 << '\t' << j + 1 << '\t' << k + 1 << '\t' << l + 1 << '\t';
-					int_file << std::scientific << std::setprecision(20) << std::setw(28) << eri << std::endl;
+					int_file << std::scientific << std::setprecision(20) << std::setw(28) << eri[0] << std::endl;
 				}
 			}
 		}
@@ -1622,6 +1677,154 @@ void Hamiltonian::read_porbs() {
 
 	arma::mat dp = arma::abs(bas.t() * W * bas - id);
 	std::cout << "Maximum deviation from orthogonality is " << std::scientific << dp.max() << std::endl;
+
+}
+
+void Hamiltonian::compare_fcidump() {
+
+	// This function should only be used after 
+	// Polymer orbitals have been extracted from a compatible orbital file!
+
+	std::map<int, double> fcidump_my, fcidump_poly; 
+
+	// When reading polymer's fcidump - discard everything except core hamiltonian and the eri-s
+	
+	fstream poly_dump;
+	poly_dump.open("FCIDUMP");
+
+	size_t nrecords =0 ;
+
+	if (!poly_dump.is_open())  {
+		std::cout << " FCIDUMP file produced by polymer was not found " << std::endl;
+		return;
+	}
+
+	std::cout << " Reading FCIDUMP generated by Polymer " << std::endl;
+
+		while (!poly_dump.eof()) {
+			nrecords++;
+			int i, j, k, l;
+			double x;
+			poly_dump >> x >> i >> j >> k >> l;
+			std::cout << x << '\t' << i << '\t' << j  << '\t' << k << '\t' << l << std::endl;
+
+			// Check if i, j != 0
+			if ((i != 0) && (j != 0)) {
+				if (i > j) std::swap(i, j);
+				if (k > l) std::swap(k, l);
+				if (i > k || (i == k && l < j)) {
+					std::swap(i, k);
+					std::swap(j, l);
+				} 
+
+				std::cout << " New index : " << i << '\t' << j << '\t' << k << '\t' << l << std::endl;
+
+			    assert (i <= j && k <= l && i <= k && j <= ( (i == k) ? l : porb));
+
+				i -= (i == 0 ? 0 : 1);
+				j -= (j == 0 ? 0 : 1);
+				k -= (k == 0 ? 0 : 1);
+				l -= (l == 0 ? 0 : 1);
+
+                int p1 = (porb - 1) * i + j - i * (i - 1) / 2,
+                    p2 = (porb - 1) * k + l - k * (k - 1) / 2;
+
+				int eri_counter = (p1 + 1) * p1 / 2  + p2;
+
+				fcidump_poly.insert(std::pair(eri_counter, x)); // CXX 17 rocks!
+			}
+		}
+	// DO the same shit for my code
+	
+	fstream my_dump;
+	my_dump.open("QFCIDUMP.POLY");
+
+	std::cout << " Reading fcidump created by my code " << std::endl;
+
+	if (!my_dump.is_open()) {
+		std::cout << " QFCIDUMP.POLY file was not found " << std::endl;
+		return;
+	}
+		while (!my_dump.eof()) {
+			int i, j, k, l;
+			double x;
+			my_dump >> x >> i >> j >> k >> l;
+			std::cout << x << '\t' << i << '\t' << j << '\t' << k << '\t' << l << std::endl;
+				if (i > j) std::swap(i, j);
+				if (k > l) std::swap(k, l);
+				if (i > k || (i == k && l < j)) {
+					std::swap(i, k);
+					std::swap(j, l);
+				} 
+
+			assert (i <= j && k <= l && i <= k && j <= ( i == k ? l : porb));
+
+			i -= (i == 0 ? 0 : 1);
+			j -= (j == 0 ? 0 : 1);
+			k -= (k == 0 ? 0 : 1);
+			l -= (l == 0 ? 0 : 1);
+
+            int p1 = (porb - 1) * i + j - i * (i - 1) / 2,
+                p2 = (porb - 1) * k + l - k * (k - 1) / 2;
+
+			int eri_counter = (p1 + 1) * p1 / 2  + p2;
+
+			fcidump_my.insert(std::pair(eri_counter, x)); // CXX 17 rocks!
+			
+		}
+
+	// Perform comparison, but first check if we have the same number of elements in both maps
+	
+	assert(fcidump_my.size() == fcidump_poly.size());
+	double max_abs_diff = 0.0;
+	for ( auto &p : fcidump_my) {
+		int idx;
+		double x;
+		std::tie(idx, x) = p;
+		if ( fcidump_poly.find(idx) == fcidump_poly.end() ) {
+			std::cout << " Comparison failed of the FCIDUMP files failed due to incompatible index spaces " << std::endl;
+		} else {
+			double x_ref = fcidump_poly[idx];
+			double old_max = max_abs_diff;
+			max_abs_diff = std::max( max_abs_diff , std::abs(x_ref - x));
+			if ( max_abs_diff > old_max) {
+				std::cout << " The error has increased " << std::endl;
+				// Check the symmetry of the eri
+
+
+			}
+		}
+	}
+
+	std::cout << " Comparison of the FCIDUMP files concluded successfully ! " << std::endl;
+	std::cout << " Maximum absolute difference between the integrals is " << std::scientific << max_abs_diff << std::endl;
+
+}
+
+void Hamiltonian::gen_eri_lookup(size_t numorb) {
+
+    for (size_t i = 0; i < numorb; i++) {
+        for (size_t j = i; j < numorb; j++) {
+            for (size_t k = 0; k < i + 1; k++) {
+                for (size_t l = k; l < (k == i ? j + 1 : numorb); l++) {
+                    size_t p1 = (numorb - 1) * i + j - i * (i - 1) / 2,
+                           p2 = (numorb - 1) * k + l - k * (k - 1) / 2;
+                    size_t eri_counter = (p1 + 1) * p1 / 2  + p2;
+
+					std::array<size_t, 4> composite_index {i, j, k, l};
+
+					if ( eri_lookup.find(eri_counter) == eri_lookup.end() ) {
+						eri_lookup.insert(std::pair(eri_counter, composite_index));
+					} else {
+						std::cout << "Error in gen_eri_lookup due to ambiguous mapping! " << std::endl;
+						assert(false);
+					}
+
+                }
+            }
+        }
+    }
+
 
 }
 

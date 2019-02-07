@@ -72,6 +72,7 @@ void Becke_grid::build_angular() {
             L_max = size_t(precision_table(j)/2.);
 #ifdef POLYMER
 			// Override the grid produced by CXX code and replace it with the one used in fortran
+			std::cout << " Polymer grid will be employed " << std::endl;
 			int na = int(nang);
 			L_max = (size_t)construct_grid_ang_(&na, x, y, z, gridw_a.data());
 #endif
