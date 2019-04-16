@@ -63,11 +63,11 @@ int main(int argc, char **argv) {
     std::cout << " Diagonalizing Hamiltonian for atom with nuclear charge " << q.params["Z"] << " with " 
 		      << q.params["electrons"] << " electrons " <<  std::endl;
 	Hamiltonian h(q.params, ss);
-	h.read_porbs();
-	h.pfcidump(); // For comparison with the actual polymer fcidump (produced by fortran code)
+	//h.read_porbs();
+	//h.pfcidump(); // For comparison with the actual polymer fcidump (produced by fortran code)
 	//h.compare_fcidump();
 
-	return 0;
+	//return 0;
 	//h.gen_aux_basis();
 	h.build_basis();
 	auto e = h.diag();
@@ -79,8 +79,6 @@ int main(int argc, char **argv) {
     std::cout << std::scientific;
 	for (size_t i = 0; i < std::min(size_t(50), e.size()); i++) 
 		std::cout << e[i] << std::endl;
-
-
 
 
 /*

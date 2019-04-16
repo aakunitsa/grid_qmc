@@ -46,6 +46,7 @@ class Hamiltonian {
 		void gen_eri_lookup(size_t num_orbitals); // Generates lookup table for ERI-s
         
 		void read_porbs();
+		void read_pfcidump();
 	    void gen_aux_basis(); // Putting this here temporarily
 		std::vector< std::vector<size_t> > alpha_str, beta_str;
 
@@ -85,16 +86,19 @@ class Hamiltonian {
 	std::vector<double> aux_bf; // Will be initialized inside gen_aux_basis
 	std::vector<double> paux_bf; // Stores the orbitals obtained from polymer; in contrast to aux_bf those are represented on the cartesian product of radial and angular grids
 
-		// Elementary integrals
+	// Elementary integrals
 
-		double ke(size_t i, size_t j); // Evaluates one particle kinetic energy integral 
-		double ce(size_t i, size_t j, size_t k, size_t l); // Evaluates coulomb integral in chemists notation; i.e. (ij|kl)
-	    std::tuple<int, std::vector<size_t>, std::vector<size_t> > gen_excitation(std::vector<size_t> &s_from, std::vector<size_t> &s_to);	
+	double ke(size_t i, size_t j); // Evaluates one particle kinetic energy integral 
+	double ce(size_t i, size_t j, size_t k, size_t l); // Evaluates coulomb integral in chemists notation; i.e. (ij|kl)
+    std::tuple<int, std::vector<size_t>, std::vector<size_t> > gen_excitation(std::vector<size_t> &s_from, std::vector<size_t> &s_to);	
 
-		// Davidson solver parameters
+	// Davidson solver parameters
 		
-		std::vector< double > H_diag;
-		std::vector< size_t > iperm;
+	std::vector< double > H_diag;
+	std::vector< size_t > iperm;
+
+	// Storage for eri and hcore
+	std::map<int, double> hcore, eri;
 
 
 };

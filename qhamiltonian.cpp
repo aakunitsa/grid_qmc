@@ -25,6 +25,12 @@
 #include <gsl/gsl_math.h>
 #endif
 
+#ifdef POLYMER_WITH_ERI
+#include "qorbitals.h"
+#include "poisson_fortran.h"
+#include <gsl/gsl_math.h>
+#endif
+
 
 #define ALPHA 1
 #define BETA 0
@@ -60,6 +66,9 @@ Hamiltonian::Hamiltonian(std::map<string, int> &p, ShellSet &orb) : ss(orb), lp(
 		nbeta = (nel - mult + 1) / 2;  // Can be zero
 	}
 
+	std::cout << "Number of alpha electrons is " << nalpha << std::endl;
+	std::cout << "Number of beta electrons is " << nbeta << std::endl;
+
 #ifdef AUXBAS
 	gen_aux_basis();
 	n1porb = ss.size() * naux;
@@ -68,6 +77,12 @@ Hamiltonian::Hamiltonian(std::map<string, int> &p, ShellSet &orb) : ss(orb), lp(
 #ifdef POLYMER
 	read_porbs();
 	n1porb = porb;
+#endif
+
+#ifdef POLYMER_WITH_ERI
+	read_pfcidump();
+	n1porb = porb;
+	//gen_eri_lookup(porb);
 #endif
 	
 #ifdef NORMAL 
@@ -158,7 +173,7 @@ void Hamiltonian::build_basis() {
 
 #endif
 
-	std::cout << "Calculting H diagonal " << std::endl; // Will later be used by DAvidson solver
+	std::cout << "Calculating H diagonal " << std::endl; // Will later be used by DAvidson solver
 	H_diag.resize(get_basis_size());
 	//iperm.resize(get_basis_size());
 
@@ -166,14 +181,17 @@ void Hamiltonian::build_basis() {
 		double Hii = 0.0;
 
 		auto [ ia, ib ] = unpack_str_index(i);
+		std::cout << " ia " << ia << std::endl;
 		Hii += evaluate_kinetic(ia, ia, ALPHA);
-		Hii += evaluate_nuc(ia, ia, ALPHA);
+		Hii += evaluate_nuc(ia, ia, ALPHA); // Will have to uncomment it later
 		if (nel > 1) {
 			// Check if the string index is within bounds 
 			assert ( ia < alpha_str.size() && ia < alpha_str.size() );
 			Hii += evaluate_coulomb(ia, ia, ALPHA);
 		}
 		if (beta_str.size() > 0) {
+			assert(false); // Should never hit this instruction for He 3S
+
 			Hii += evaluate_kinetic(ib, ib, BETA);
 			Hii += evaluate_nuc(ib, ib, BETA);
 			if (nel > 1) {
@@ -188,12 +206,18 @@ void Hamiltonian::build_basis() {
 	// After diagonal has been calculated - perform indirect sorting to populate iperm
 	
 	//gsl_sort_index(iperm.data(), H_diag.data(), 1, get_basis_size());
+
+    // This is temporary
+	std::sort(H_diag.begin(), H_diag.end());	
+	std::cout << " The diagonal part of the hamiltonian will be printed below " << std::endl;
+	for (auto &h : H_diag)
+		printf("%20.10f\n", h);
 	
 }
 
 vector<double> Hamiltonian::diag() {
 
-	// When building matrix it is helpful assess if it is diagonally dominant
+	// When building matrix it is helpful to assess if it is diagonally dominant
 	// so that one could see if the Davidson solver will perform well in this
 	// case
 
@@ -234,17 +258,18 @@ vector<double> Hamiltonian::diag() {
 
 			double Hij = 0.0;
 
-			//Hij += evaluate_kinetic(ia, ja, ALPHA) * (ib == jb ? 1. : 0.);
-			//Hij += evaluate_nuc(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
-			Hij += 0.5 * (evaluate_kinetic(ia, ja, ALPHA) * (ib == jb ? 1. : 0.) + evaluate_kinetic(ja, ia, ALPHA) * (ib == jb ? 1. : 0.));
-			Hij += 0.5 * (evaluate_nuc(ia, ja, ALPHA)* (ib == jb ? 1. : 0.) + evaluate_nuc(ja, ia, ALPHA)* (ib == jb ? 1. : 0.));
+			Hij += evaluate_kinetic(ia, ja, ALPHA) * (ib == jb ? 1. : 0.);
+			Hij += evaluate_nuc(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
+			//Hij += 0.5 * (evaluate_kinetic(ia, ja, ALPHA) * (ib == jb ? 1. : 0.) + evaluate_kinetic(ja, ia, ALPHA) * (ib == jb ? 1. : 0.));
+			//Hij += 0.5 * (evaluate_nuc(ia, ja, ALPHA)* (ib == jb ? 1. : 0.) + evaluate_nuc(ja, ia, ALPHA)* (ib == jb ? 1. : 0.));
 			if (nel > 1) {
 				// Check if the string index is within bounds 
 				assert ( ia < num_alpha_str && ja < num_alpha_str );
-				//Hij += evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
-				Hij += 0.5 * (evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.) + evaluate_coulomb(ja, ia, ALPHA)* (ib == jb ? 1. : 0.));
+				Hij += evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
+				//Hij += 0.5 * (evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.) + evaluate_coulomb(ja, ia, ALPHA)* (ib == jb ? 1. : 0.));
 			}
 			if (beta_str.size() > 0) {
+				assert (false); // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! REMOVE IT LATER
 				Hij += evaluate_kinetic(ib, jb, BETA)* (ia == ja ? 1. : 0.);
 				Hij += evaluate_nuc(ib, jb, BETA)* (ia == ja ? 1. : 0.);
 				if (nel > 1) {
@@ -676,6 +701,16 @@ double Hamiltonian::evaluate_nuc(size_t is, size_t js, int type) {
 }
 #endif
 
+#ifdef POLYMER_WITH_ERI
+
+// Nuclear attraction term will be set to zero as it is included in the 
+// core Hamiltonian
+
+double Hamiltonian::evaluate_nuc(size_t is, size_t js, int type) {
+	return 0.0;
+}
+
+#endif
 
 
 double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
@@ -696,14 +731,18 @@ double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 
 	if ( ex_order > 2 ) {
 
+		//assert(false);
+
 		return 0.0;
 
 	} else if ( ex_order == 2 ) {
 
-		if (from.size() == 2) return p * (ce(to[0], from[0], to[1], from[1]) - ce(to[0], from[1], to[1], from[0]));
+		//assert(false);
+		if (from.size() == 2) return p * (ce(to[0], from[0], to[1], from[1]) - ce(to[0], from[1], to[1], from[0])); // Mulliken's notation
 
 	} else if (ex_order == 1) {
 
+		//assert(false);
 		// The following will only be valid for 2e atoms and 
 		// is not generally true. Will be turned off for arbitrary 
 		// multielectron atoms
@@ -716,9 +755,9 @@ double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 
 		double matrix_element = 0.0;
 
-		for (size_t ie = 0; ie < (type == ALPHA ? nalpha : nbeta); ie++) {
+		for (size_t ie = 0; ie < (type == ALPHA ? nalpha : nbeta) && j_s[ie] != from[0] && j_s[ie] != to[0]; ie++) {
 			//matrix_element += (ce(to[0], from[0], i_s[ie], j_s[ie]) - ce(to[0], j_s[ie], i_s[ie], from[0]));
-			matrix_element += (ce(to[0], from[0], j_s[ie], j_s[ie]) - ce(to[0], j_s[ie], j_s[ie], from[0]));
+			matrix_element += (ce(to[0], from[0], j_s[ie], j_s[ie]) - ce(to[0], j_s[ie], j_s[ie], from[0])); 
 		}
 
 		return p * matrix_element;
@@ -732,9 +771,11 @@ double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 
 		// Include spin - diagonal terms first
 
-		for ( size_t i = 0; i < (type == ALPHA ? nalpha : nbeta); i++ ) 
-			for (size_t j = 0; j < (type == ALPHA ? nalpha : nbeta); j++) 
+		for ( size_t i = 0; i < (type == ALPHA ? nalpha : nbeta); i++ ) {
+			for (size_t j = 0; j < (type == ALPHA ? nalpha : nbeta); j++) { 
 				matrix_element += (ce(i_s[i], i_s[i], i_s[j], i_s[j]) - ce(i_s[i], i_s[j], i_s[j], i_s[i]));
+			}
+		}
 
 
 
@@ -745,6 +786,9 @@ double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 }
 
 double Hamiltonian::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja, size_t jb) {
+
+	// More thorough testing is required in order to check if the function 
+	// works correctly
 
 	//assert (false);
 
@@ -928,9 +972,12 @@ double Hamiltonian::ce(size_t i, size_t j, size_t k, size_t l) {
 				auto [th, p] = g.thetaphi_ang[a];
 				auto [rek, imk] = Y(ok.L, ok.M, th, p);
 				auto [rel, iml] = Y(ol.L, ol.M, th, p);
-				
-				double tmp_re = rpart * ((rek * rel + imk * iml) * pot_ij_re[r * g.nang + a] - rpart * (rek * iml - imk * rel) * pot_ij_im[r * g.nang + a]);
-				double tmp_im = rpart * ((rek * rel + imk * iml) * pot_ij_im[r * g.nang + a] + rpart * (rek * iml - imk * rel) * pot_ij_re[r * g.nang + a]);
+			
+			    // Why did I multiply by the radial part 2 times?	
+				//double tmp_re = rpart * ((rek * rel + imk * iml) * pot_ij_re[r * g.nang + a] - rpart * (rek * iml - imk * rel) * pot_ij_im[r * g.nang + a]);
+				//double tmp_im = rpart * ((rek * rel + imk * iml) * pot_ij_im[r * g.nang + a] + rpart * (rek * iml - imk * rel) * pot_ij_re[r * g.nang + a]);
+				double tmp_re = rpart * ((rek * rel + imk * iml) * pot_ij_re[r * g.nang + a] - (rek * iml - imk * rel) * pot_ij_im[r * g.nang + a]);
+				double tmp_im = rpart * ((rek * rel + imk * iml) * pot_ij_im[r * g.nang + a] + (rek * iml - imk * rel) * pot_ij_re[r * g.nang + a]);
 
 				m_re += 4. * M_PI * g.gridw_a[a] * g.gridw_r[r] * tmp_re;
 				m_im += 4. * M_PI * g.gridw_a[a] * g.gridw_r[r] * tmp_im;
@@ -1125,6 +1172,38 @@ double Hamiltonian::ke(size_t i, size_t j) {
 
 }
 
+
+#endif
+
+#ifdef POLYMER_WITH_ERI
+
+double Hamiltonian::ce(size_t i, size_t j, size_t k, size_t l) {
+
+	if (i > j) std::swap(i, j);
+	if (k > l) std::swap(k, l);
+	if (i > k || (i == k && l < j)) {
+		std::swap(i, k);
+		std::swap(j, l);
+	} 
+
+	assert (i <= j && k <= l && i <= k && j <= ( (i == k) ? l : porb));
+
+	int p1 = (porb - 1) * i + j - i * (i - 1) / 2,
+		p2 = (porb - 1) * k + l - k * (k - 1) / 2;
+
+	//int eri_index = (p1 + 1) * p1 / 2  + p2;
+	int eri_index = gsl_pow_3(porb) * i +gsl_pow_2(porb) * j + porb * k + l;
+
+	return eri[eri_index];
+
+}
+
+double Hamiltonian::ke(size_t i, size_t j) {
+
+	if (i > j) std::swap(i, j);
+	return hcore[i*porb + j];
+
+}
 
 #endif
 
@@ -1677,6 +1756,91 @@ void Hamiltonian::read_porbs() {
 
 	arma::mat dp = arma::abs(bas.t() * W * bas - id);
 	std::cout << "Maximum deviation from orthogonality is " << std::scientific << dp.max() << std::endl;
+
+}
+
+void Hamiltonian::read_pfcidump() {
+
+	// Reads FCIDUMP from Polymer and creates arrays for Hcore and ERI
+
+	//std::map<int, double> eri, hcore;  // Those are declared as members of the Hamiltonian class
+	fstream poly_dump;
+	poly_dump.open("FCIDUMP");
+
+	size_t nrecords =0 ;
+
+	if (!poly_dump.is_open())  {
+		std::cout << " FCIDUMP file produced by polymer was not found " << std::endl;
+		return;
+	}
+
+	std::cout << " Reading FCIDUMP generated by Polymer " << std::endl;
+	poly_dump >> porb;
+
+	std::cout << " Number of basis function in the Polymer fcidump file is " << porb << std::endl;
+
+	//while (!poly_dump.eof()) {
+	while (nrecords < 4291 ) {
+		nrecords++;
+		int i, j, k, l;
+		double x;
+		poly_dump >> x >> i >> j >> k >> l;
+
+		std::cout << "Original: " << x << '\t' << i << '\t' << j  << '\t' << k << '\t' << l << std::endl;
+
+		// We care about two cases only:
+		// 1. All indeces are non-zero => eri
+		// 2. Two indeces are non-zero => core hamiltonian
+		// Everything else will be ignored
+		if ((i != 0) && (j != 0) && (k != 0) && (l != 0)) {
+			if (i > j) std::swap(i, j);
+			if (k > l) std::swap(k, l);
+			if (i > k || (i == k && l < j)) {
+				std::swap(i, k);
+				std::swap(j, l);
+			} 
+
+			//std::cout << " New index : " << i << '\t' << j << '\t' << k << '\t' << l << std::endl;
+			//
+			// Index pairs follow lexical ordering as checked by the following assert statement
+
+			assert (i <= j && k <= l && i <= k && j <= ( (i == k) ? l : porb));
+
+			//i -= (i == 0 ? 0 : 1);
+			//j -= (j == 0 ? 0 : 1);
+			//k -= (k == 0 ? 0 : 1);
+			//l -= (l == 0 ? 0 : 1);
+			i -= 1;
+			j -= 1;
+			k -= 1;
+			l -= 1;
+
+
+		    std::cout << x << '\t' << i << '\t' << j  << '\t' << k << '\t' << l << std::endl;
+
+			int p1 = (porb - 1) * i + j - i * (i - 1) / 2,
+				p2 = (porb - 1) * k + l - k * (k - 1) / 2;
+
+			//int eri_counter = (p1 + 1) * p1 / 2  + p2;
+			int eri_counter = gsl_pow_3(porb) * i +gsl_pow_2(porb) * j + porb * k + l;
+			std::cout << " ERI counter " << eri_counter << std::endl;
+
+			assert(eri.find(eri_counter) == eri.end());
+
+			eri.insert(std::pair(eri_counter, x)); // CXX 17 rocks!
+		} else if ( (i != 0) && (j != 0) && (k == 0) && (l == 0)) {
+			if (i > j) std::swap(i, j);
+			i -= 1; 
+			j -= 1; 
+		    std::cout << x << '\t' << i << '\t' << j << std::endl;
+			assert (hcore.find(i * porb + j) == hcore.end());
+			hcore.insert(std::pair(i * porb + j, x));
+		}
+	}
+
+	std::cout << "Finished reading FCIDUMP! " << nrecords << " have been processed." <<  std::endl; 
+
+	poly_dump.close();
 
 }
 
