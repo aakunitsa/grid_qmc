@@ -55,8 +55,8 @@ int main(int argc, char **argv) {
 	
 	// Create a shellset first
 	
-	//ShellSet ss(0);
-	ShellSet ss(1);
+	ShellSet ss(0);
+	//ShellSet ss(1);
 
 	// Only run this for hydrogen atom for now
 	
@@ -71,6 +71,11 @@ int main(int argc, char **argv) {
 	//h.gen_aux_basis();
 	h.build_basis();
 	auto e = h.diag();
+#ifdef POLYMER
+	//h.test2();
+    h.pfcidump();
+	//h.compare_fcidump();
+#endif
 	//auto e = h.diag_davidson(10);
 
     std::sort(e.begin(), e.end());

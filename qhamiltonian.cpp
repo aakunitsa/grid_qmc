@@ -13,28 +13,16 @@
 #include <gsl/gsl_cblas.h>
 #include <tuple> // for tie function
 
-#ifdef AUXBAS
 #include "qorbitals.h"
 #include "poisson_fortran.h"
 #include <gsl/gsl_math.h>
-#endif
-
-#ifdef POLYMER
-#include "qorbitals.h"
-#include "poisson_fortran.h"
-#include <gsl/gsl_math.h>
-#endif
-
-#ifdef POLYMER_WITH_ERI
-#include "qorbitals.h"
-#include "poisson_fortran.h"
-#include <gsl/gsl_math.h>
-#endif
 
 
 #define ALPHA 1
 #define BETA 0
 
+extern "C" void read_orbitals_(double *coeff);
+extern "C" void read_integrals_(int *idx, double *eri);
 
 
 Hamiltonian::Hamiltonian(std::map<string, int> &p, ShellSet &orb) : ss(orb), lp(p), r12(p), g(p) {
@@ -72,11 +60,16 @@ Hamiltonian::Hamiltonian(std::map<string, int> &p, ShellSet &orb) : ss(orb), lp(
 #ifdef AUXBAS
 	gen_aux_basis();
 	n1porb = ss.size() * naux;
+	int iatom = 2, nrad = int(g.nrad) , nang = int(g.nang);
+	initialize_poisson_(&nrad, &nang, &iatom);
 #endif
 
 #ifdef POLYMER
-	read_porbs();
+	//read_porbs(0);
+	read_porbs(1);
 	n1porb = porb;
+	int iatom = 2, nrad = int(g.nrad) , nang = int(g.nang);
+	initialize_poisson_(&nrad, &nang, &iatom);
 #endif
 
 #ifdef POLYMER_WITH_ERI
@@ -181,7 +174,7 @@ void Hamiltonian::build_basis() {
 		double Hii = 0.0;
 
 		auto [ ia, ib ] = unpack_str_index(i);
-		std::cout << " ia " << ia << std::endl;
+		//std::cout << " ia " << ia << std::endl;
 		Hii += evaluate_kinetic(ia, ia, ALPHA);
 		Hii += evaluate_nuc(ia, ia, ALPHA); // Will have to uncomment it later
 		if (nel > 1) {
@@ -211,7 +204,7 @@ void Hamiltonian::build_basis() {
 	std::sort(H_diag.begin(), H_diag.end());	
 	std::cout << " The diagonal part of the hamiltonian will be printed below " << std::endl;
 	for (auto &h : H_diag)
-		printf("%20.10f\n", h);
+    	printf("%20.10f\n", h);
 	
 }
 
@@ -235,15 +228,6 @@ vector<double> Hamiltonian::diag() {
 
 	double max_d = 0.0, max_offd = 0.0;
 
-#ifdef AUXBAS
-	int iatom = 2, nrad = int(g.nrad) , nang = int(g.nang);
-	initialize_poisson_(&nrad, &nang, &iatom);
-#endif
-
-#ifdef POLYMER
-	int iatom = 2, nrad = int(g.nrad) , nang = int(g.nang);
-	initialize_poisson_(&nrad, &nang, &iatom);
-#endif
 
 
     for (size_t i = 0; i < n_bf; i++) 
@@ -552,6 +536,7 @@ double Hamiltonian::evaluate_kinetic(size_t is, size_t js, int type) {
 		}
 
 		return p*ke(to[0], from[0]);
+		//return p*ke(from[0], to[0]);
 
 	} else {
 		return 0;
@@ -675,24 +660,23 @@ double Hamiltonian::evaluate_nuc(size_t is, size_t js, int type) {
 		return 0.0;
 
 	} else if ( ex_order == 1) {
-		size_t ngrid = g.nrad * g.nang;
         arma::vec orb_i(&paux_bf[to[0] * ngrid], ngrid, false);
         arma::vec orb_j(&paux_bf[from[0] * ngrid], ngrid, false);
 
-
 	    for ( size_t k = 0; k < g.nrad ; k++) 
 			for ( size_t l = 0; l < g.nang; l++) 
-				result += -Znuc / g.r[k] * orb_j[k * g.nang + l] * orb_i[k * g.nang + l] * g.gridw_r[k] *  g.gridw_a[l] * 4. * M_PI;
-		
+				result += (-Znuc / g.r[k] * orb_j[k * g.nang + l] * orb_i[k * g.nang + l] * g.gridw_r[k] *  g.gridw_a[l] * 4. * M_PI);
 
+		result *= p;
+		
 	} else {
 
 		assert ( is == js );
-		for (const auto &i : alpha_str[is] ) {
+		for (const auto &i : idet ) {
 			arma::vec orb_i(&paux_bf[i * ngrid], ngrid, false);
 			for ( size_t k = 0; k < g.nrad ; k++) 
 				for ( size_t l = 0; l < g.nang; l++) 
-					result += -Znuc / g.r[k] * orb_i[k * g.nang + l] * orb_i[k * g.nang + l] * g.gridw_r[k] *  g.gridw_a[l]* 4. * M_PI;
+					result += (-Znuc / g.r[k] * orb_i[k * g.nang + l] * orb_i[k * g.nang + l] * g.gridw_r[k] *  g.gridw_a[l] * 4. * M_PI);
 		}
 
 	}
@@ -836,7 +820,7 @@ double Hamiltonian::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja, si
 #ifdef NORMAL
 double Hamiltonian::ce(size_t i, size_t j, size_t k, size_t l) {
 
-	// Assumes that the orbitals are arranged in Mulliken's order, that is
+	// Assumes that the orbital indeces are arranged in Mulliken's order, that is
 	// i and j refer to the first electron whereas k and l refer to the second
 	// Extract radial point and angular orbital index
 	
@@ -1075,8 +1059,8 @@ double Hamiltonian::ce(size_t i, size_t j, size_t k, size_t l) {
     arma::vec orb_j(&paux_bf[j * ngrid], ngrid, false);
     arma::vec orb_k(&paux_bf[k * ngrid], ngrid, false);
     arma::vec orb_l(&paux_bf[l * ngrid], ngrid, false);
-		
-		
+
+	double i_ijkl = eri_fortran_(&paux_bf[i * ngrid], &paux_bf[j * ngrid], &paux_bf[k * ngrid], &paux_bf[l * ngrid]); 
 
 	// Will use Poisson solver to generate integrals
 	// This is not practical for larger scale calculations; here I decided to try that for testing 
@@ -1094,18 +1078,35 @@ double Hamiltonian::ce(size_t i, size_t j, size_t k, size_t l) {
 	// 2. Use Poisson solver to calculate corresponding potenials
 
 	construct_potential_(den_ij.data(), pot_ij.data());
+/*
+	if ((i == 12) && (j == 12) && (k == 12) && (l == 12)) {
+		// Print potential (for 25 x 6 grid for debugging purposes
+		std::cout << " ==== " << std::endl;
+		std::cout << "Density for  13 13 " << std::endl;
+		for (size_t g = 0; g < ngrid; g++) 
+			printf("%28.20f\n", den_ij[g]);
+		std::cout << "Potential for 13 13 13 13 integral" << std::endl;
+		for (size_t g = 0; g < ngrid; g++) 
+			printf("%28.20f\n", pot_ij[g]);
 
+		//std::cout.flush();
+
+	}
+*/
 	// 3. Contract the potentials with the other orbital density;
 		
 
 	for ( size_t g = 0; g < ngrid ; g++) 
 		m += orb_k[g] * orb_l[g] * pot_ij[g] * gridw[g];
 
+	assert (abs(m - i_ijkl) <= 1e-10); // Make sure that C++ and Fortran produce similar results!
+
 	return m ;
 
 }
 
 double Hamiltonian::ke(size_t i, size_t j) {
+
 
     size_t ngrid = g.nrad * g.nang;
 
@@ -1129,6 +1130,8 @@ double Hamiltonian::ke(size_t i, size_t j) {
 
 				auto [th, p] = g.thetaphi_ang[a];
 				auto [re, im] = Y(L, M, th, p);
+
+				// Note: we are multiplying by the complex conjugate; orbitals are real
 
 				di_re += 4. * M_PI * g.gridw_a[a] * re * orb_i[r * g.nang + a];
 				di_im -= 4. * M_PI * g.gridw_a[a] * im * orb_i[r * g.nang + a];
@@ -1335,10 +1338,30 @@ void Hamiltonian::test1() {
 	std::cout << "Excitations are generated correctly!"  << std::endl;
 }
 
+void Hamiltonian::test2() {
+	// For 25 x 6 basis calculate (13 13 | 13 13)
+#ifdef POLYMER
+
+	assert (g.nrad == 25 && g.nang == 6);
+
+	size_t ngrid = g.nrad * g.nang;
+
+	double i_ijkl = eri_fortran_(&paux_bf[12 * ngrid], &paux_bf[12 * ngrid], &paux_bf[12 * ngrid], &paux_bf[12 * ngrid]); 
+
+	std::cout << "Test 2 : (13, 13 |13, 13) integral for He atom on 25 X 6" << std::endl;
+	printf("I = %28.20f\n", i_ijkl);
+
+
+#endif
+	
+
+}
+
 void Hamiltonian::gen_aux_basis() {
 
 
-	double lthresh = 1e-5; // Linear dependence threshold
+	//double lthresh = 1e-5; // Linear dependence threshold
+	double lthresh = 1e-6; // Linear dependence threshold
 	double orth_thresh = 1e-6; // Very mild orthogonalisation accuracy threshold
 
 	std::vector<double> aux(g.nrad * g.nrad, 0.0);
@@ -1640,46 +1663,68 @@ void Hamiltonian::pfcidump() {
 
 			// ----
 
-			int_file << i + 1 << '\t' << j + 1 << '\t' << 0 << '\t' << 0 << '\t';
-			int_file << std::scientific << std::setprecision(20) << std::setw(28) << h << std::endl;
+			int_file << std::scientific << std::setprecision(20) << std::setw(28) << h << "    " ;
+			int_file << i + 1 << "    " << j + 1 << "    " << 0 << "    " << 0 << std::endl;
 			
 		}
 	}
 
 	// (Annoying) Two electron part 
+	std::vector<int> pairs;
+
+	// populate pairs same way as in Polymer (even if that looks stupid)
 	
-	for ( size_t i = 0; i < porb; i++) {
-		for ( size_t j = i; j < porb; j++) {
-			for ( size_t k = 0; k < i + 1; k++) {
-				for ( size_t l = k; l < (k == i ? j + 1 : porb); l++) {
-					// Calculate (ij|kl) and dump it to the text file
-					double eri[8];
-					eri[0] =  ce(i, j, k, l);
-					eri[1] = ce(j, i, k, l);
-					eri[2] = ce(i, j, l, k);
-					eri[3] = ce(j, i, l, k);
-					eri[4] = ce(k, l, i, j);
-					eri[5] = ce(l, k, i, j);
-					eri[6] = ce(k, l, j, i);
-					eri[7] = ce(l, k, j, i);
+	for (int i = 0; i < porb; i++) {
+		for (int j = i + 1; j < porb; j++) {
+			pairs.push_back(i * porb + j);
+		}
+	}
 
-					double assym = 0.0;
+	for (int j = 0; j < porb; j++) {
+		pairs.push_back(j * porb + j);
+	}
+	size_t numpairs = porb * (porb + 1) / 2;
 
-					for (size_t i = 0 ; i < 8; i++) 
-						for ( size_t j = 0; j < 8; j++) {
-							assym = std::max(assym, std::abs(eri[i] - eri[j]));
-						}
+	assert (pairs.size() == numpairs);
 
-					if ( assym > 1e-2 ) {
-						std::cout << " Detected significant symmetry breaking in ERI matrix " << std::endl;
-						std::cout << " Assym = " << assym << std::endl;
-					}
-					assert ( assym <= 1e-2 );
+	for ( size_t p = 0; p < numpairs; p++) {
+		int ij = pairs[p];
+		int j = ij % porb;
+		int i = (ij - j) / porb;
+		for (size_t q = p; q < numpairs; q++) {
+			int kl = pairs[q];
+			int l = kl % porb;
+			int k = (kl - l) / porb;
 
-					int_file << i + 1 << '\t' << j + 1 << '\t' << k + 1 << '\t' << l + 1 << '\t';
-					int_file << std::scientific << std::setprecision(20) << std::setw(28) << eri[0] << std::endl;
+			double eri[8];
+			eri[0] =  ce(i, j, k, l); // Density is built based on the first pair of indeces; same as POLYMER
+			
+			eri[1] = ce(j, i, k, l);
+			eri[2] = ce(i, j, l, k);
+			eri[3] = ce(j, i, l, k);
+			eri[4] = ce(k, l, i, j);
+			eri[5] = ce(l, k, i, j);
+			eri[6] = ce(k, l, j, i);
+			eri[7] = ce(l, k, j, i);
+
+			double assym = 0.0;
+
+			for (size_t i = 0 ; i < 8; i++) 
+				for ( size_t j = 0; j < 8; j++) {
+					assym = std::max(assym, std::abs(eri[i] - eri[j]));
 				}
+
+			if ( assym > 1e-2 ) {
+				std::cout << " Detected significant symmetry breaking in ERI matrix " << std::endl;
+				std::cout << " Assym = " << assym << std::endl;
 			}
+			//assert ( assym <= 1e-2 );
+			
+
+			int_file << std::scientific << std::setprecision(20) << std::setw(28) << eri[0] << "    " ; // See the note above
+			//int_file << std::scientific << std::setprecision(20) << std::setw(28) << eri[4] << "    " ; 
+			int_file << i + 1 << "    " << j + 1 << "    " << k + 1 << "    " << l + 1 << std::endl;
+
 		}
 	}
 
@@ -1692,7 +1737,7 @@ void Hamiltonian::pfcidump() {
 }
 
 
-void Hamiltonian::read_porbs() {
+void Hamiltonian::read_porbs(int mode) {
 
 	// Assumes that real values orbitals are 
 	// stored in the disk file called ORBITALS.DAT
@@ -1721,8 +1766,17 @@ void Hamiltonian::read_porbs() {
 	} else {
 		std::cout << porb << " orbitals will be read " << std::endl;
 		paux_bf.resize(porb * pmaxngrid);
-		for (size_t i = 0; i < size_t (porb * pmaxngrid); i++ ) 
-			orb_file >> paux_bf[i];
+		if (mode == 0) {
+			for (size_t i = 0; i < size_t (porb * pmaxngrid); i++ ) 
+				orb_file >> paux_bf[i];
+		} else if (mode == 1) {
+			// use fortran subroutine
+			std::cout << "Extracting orbitals from the binary file " << std::endl;
+			read_orbitals_(paux_bf.data());
+		} else {
+			std::cout << " Unknown mode specifier in read_porbs! " << std::endl;
+			std::cout << " Orbital coefficient array will not be populated!" << std::endl;
+		}
 	}
 
 	orb_file.close();
@@ -1766,6 +1820,7 @@ void Hamiltonian::read_pfcidump() {
 	//std::map<int, double> eri, hcore;  // Those are declared as members of the Hamiltonian class
 	fstream poly_dump;
 	poly_dump.open("FCIDUMP");
+	//poly_dump.open("QFCIDUMP.POLY");
 
 	size_t nrecords =0 ;
 
@@ -1780,12 +1835,15 @@ void Hamiltonian::read_pfcidump() {
 	std::cout << " Number of basis function in the Polymer fcidump file is " << porb << std::endl;
 
 	//while (!poly_dump.eof()) {
-	while (nrecords < 4291 ) {
-		nrecords++;
-		int i, j, k, l;
-		double x;
-		poly_dump >> x >> i >> j >> k >> l;
+	//while (nrecords < 4291 ) {
+	//while (nrecords < 951562 ) {
+	//while (nrecords < 2755446 ) {
+	int i, j, k, l;
+	double x;
+	poly_dump >> x >> i >> j >> k >> l;
 
+	do {
+		nrecords++;
 		std::cout << "Original: " << x << '\t' << i << '\t' << j  << '\t' << k << '\t' << l << std::endl;
 
 		// We care about two cases only:
@@ -1806,15 +1864,7 @@ void Hamiltonian::read_pfcidump() {
 
 			assert (i <= j && k <= l && i <= k && j <= ( (i == k) ? l : porb));
 
-			//i -= (i == 0 ? 0 : 1);
-			//j -= (j == 0 ? 0 : 1);
-			//k -= (k == 0 ? 0 : 1);
-			//l -= (l == 0 ? 0 : 1);
-			i -= 1;
-			j -= 1;
-			k -= 1;
-			l -= 1;
-
+			i -= 1; j -= 1; k -= 1; l -= 1;
 
 		    std::cout << x << '\t' << i << '\t' << j  << '\t' << k << '\t' << l << std::endl;
 
@@ -1828,6 +1878,7 @@ void Hamiltonian::read_pfcidump() {
 			assert(eri.find(eri_counter) == eri.end());
 
 			eri.insert(std::pair(eri_counter, x)); // CXX 17 rocks!
+
 		} else if ( (i != 0) && (j != 0) && (k == 0) && (l == 0)) {
 			if (i > j) std::swap(i, j);
 			i -= 1; 
@@ -1836,7 +1887,10 @@ void Hamiltonian::read_pfcidump() {
 			assert (hcore.find(i * porb + j) == hcore.end());
 			hcore.insert(std::pair(i * porb + j, x));
 		}
-	}
+
+		poly_dump >> x >> i >> j >> k >> l;
+
+	} while (!poly_dump.eof()) ;
 
 	std::cout << "Finished reading FCIDUMP! " << nrecords << " have been processed." <<  std::endl; 
 
@@ -1853,51 +1907,45 @@ void Hamiltonian::compare_fcidump() {
 
 	// When reading polymer's fcidump - discard everything except core hamiltonian and the eri-s
 	
-	fstream poly_dump;
-	poly_dump.open("FCIDUMP");
+	fstream poly_dump1;
+	poly_dump1.open("FCIDUMP");
 
-	size_t nrecords =0 ;
 
-	if (!poly_dump.is_open())  {
+	if (!poly_dump1.is_open())  {
 		std::cout << " FCIDUMP file produced by polymer was not found " << std::endl;
 		return;
 	}
 
+    int i, j, k, l;
+	double x;
+
+    std::cout << " porb (in compare_fcidump) " << porb << std::endl;
+	poly_dump1 >> x >> i >> j >> k >> l;
+
 	std::cout << " Reading FCIDUMP generated by Polymer " << std::endl;
 
-		while (!poly_dump.eof()) {
-			nrecords++;
-			int i, j, k, l;
-			double x;
-			poly_dump >> x >> i >> j >> k >> l;
-			std::cout << x << '\t' << i << '\t' << j  << '\t' << k << '\t' << l << std::endl;
+	do {
 
-			// Check if i, j != 0
-			if ((i != 0) && (j != 0)) {
-				if (i > j) std::swap(i, j);
-				if (k > l) std::swap(k, l);
-				if (i > k || (i == k && l < j)) {
-					std::swap(i, k);
-					std::swap(j, l);
-				} 
+		if ((i != 0) && (j != 0) && (k != 0) && (l != 0) ) {
 
-				std::cout << " New index : " << i << '\t' << j << '\t' << k << '\t' << l << std::endl;
+			assert ((i >= 1) && (j >= 1) && (k >= 1) && (l >= 1));
+			assert (i <= j);
+			assert (k <= l);
 
-			    assert (i <= j && k <= l && i <= k && j <= ( (i == k) ? l : porb));
+			i--; j--; k--; l--;
 
-				i -= (i == 0 ? 0 : 1);
-				j -= (j == 0 ? 0 : 1);
-				k -= (k == 0 ? 0 : 1);
-				l -= (l == 0 ? 0 : 1);
+			int eri_counter = gsl_pow_3(porb) * i +gsl_pow_2(porb) * j + porb * k + l;
+			assert (fcidump_poly.find(eri_counter) == fcidump_poly.end());
 
-                int p1 = (porb - 1) * i + j - i * (i - 1) / 2,
-                    p2 = (porb - 1) * k + l - k * (k - 1) / 2;
-
-				int eri_counter = (p1 + 1) * p1 / 2  + p2;
-
-				fcidump_poly.insert(std::pair(eri_counter, x)); // CXX 17 rocks!
-			}
+			fcidump_poly.insert(std::pair(eri_counter, x)); 
 		}
+
+	    poly_dump1 >> x >> i >> j >> k >> l;
+
+
+	} while (!poly_dump1.eof()); 
+
+	poly_dump1.close();
 	// DO the same shit for my code
 	
 	fstream my_dump;
@@ -1909,33 +1957,42 @@ void Hamiltonian::compare_fcidump() {
 		std::cout << " QFCIDUMP.POLY file was not found " << std::endl;
 		return;
 	}
-		while (!my_dump.eof()) {
-			int i, j, k, l;
-			double x;
-			my_dump >> x >> i >> j >> k >> l;
-			std::cout << x << '\t' << i << '\t' << j << '\t' << k << '\t' << l << std::endl;
-				if (i > j) std::swap(i, j);
-				if (k > l) std::swap(k, l);
-				if (i > k || (i == k && l < j)) {
-					std::swap(i, k);
-					std::swap(j, l);
-				} 
 
-			assert (i <= j && k <= l && i <= k && j <= ( i == k ? l : porb));
+	my_dump >> x >> i >> j >> k >> l;
 
-			i -= (i == 0 ? 0 : 1);
-			j -= (j == 0 ? 0 : 1);
-			k -= (k == 0 ? 0 : 1);
-			l -= (l == 0 ? 0 : 1);
+	std::vector<int> eri_counters;
 
-            int p1 = (porb - 1) * i + j - i * (i - 1) / 2,
-                p2 = (porb - 1) * k + l - k * (k - 1) / 2;
+	do {
 
-			int eri_counter = (p1 + 1) * p1 / 2  + p2;
+		if ((i != 0) && (j != 0) && (k !=0 ) && (l !=0)) {
 
-			fcidump_my.insert(std::pair(eri_counter, x)); // CXX 17 rocks!
-			
+			//std::cout << i << '\t' << j << '\t' << k << '\t' << l << std::endl;
+
+			assert ((i >= 1) && (j >= 1) && (k >= 1) && (l >= 1));
+			assert (i <= j);
+			assert (k <= l);
+			i -= 1; j -= 1; k -= 1; l -= 1;
+
+			int eri_counter = gsl_pow_3(porb) * i +gsl_pow_2(porb) * j + porb * k + l;
+			eri_counters.push_back(eri_counter);
+
+			assert (fcidump_my.find(eri_counter) == fcidump_my.end());
+
+			if (eri_counter == 0) {
+				std::cout << "For eri_counter == 0" << x << std::endl;
+			    std::cout << i << '\t' << j << '\t' << k << '\t' << l << std::endl;
+			}
+
+			fcidump_my.insert(std::pair(eri_counter, x)); 
+			assert(fcidump_my[eri_counter] == x);
 		}
+			
+		my_dump >> x >> i >> j >> k >> l;
+
+
+	} while (!my_dump.eof());
+
+	my_dump.close();
 
 	// Perform comparison, but first check if we have the same number of elements in both maps
 	
@@ -1945,14 +2002,20 @@ void Hamiltonian::compare_fcidump() {
 		int idx;
 		double x;
 		std::tie(idx, x) = p;
+		assert (std::find(eri_counters.begin(), eri_counters.end(), idx) != eri_counters.end());
 		if ( fcidump_poly.find(idx) == fcidump_poly.end() ) {
 			std::cout << " Comparison failed of the FCIDUMP files failed due to incompatible index spaces " << std::endl;
+			std::cout << " index (my intdump) " << idx << std::endl;
 		} else {
 			double x_ref = fcidump_poly[idx];
 			double old_max = max_abs_diff;
 			max_abs_diff = std::max( max_abs_diff , std::abs(x_ref - x));
 			if ( max_abs_diff > old_max) {
-				std::cout << " The error has increased " << std::endl;
+				std::cout << " The error has increased (Diagnostic information) " << std::endl;
+				printf("%28.20f (Polymer)\n", x_ref);
+				printf("%28.20f (grid_qmc)\n", x);
+				std::cout << "Integral index is " << idx << std::endl;
+
 				// Check the symmetry of the eri
 
 

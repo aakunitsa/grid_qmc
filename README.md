@@ -1,6 +1,6 @@
 # grid_qmc
 
-Grid-based stochastic and deterministic electronic structure methods.
+Grid-based stochastic and deterministic electronic structure methods. The code is currently in the development stage.
 
 # TODO list (deterministic):
 1. Poisson solver

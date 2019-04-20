@@ -45,7 +45,7 @@ class Hamiltonian {
 		std::map<int, std::array<size_t, 4> > eri_lookup; // represents (efficient) mapping between flat integer indeces and orbital indeces for the ERI matrix
 		void gen_eri_lookup(size_t num_orbitals); // Generates lookup table for ERI-s
         
-		void read_porbs();
+		void read_porbs(int mode); // mode = 0 - read formatted text file ORBITALS.DAT; mode 1 - read binary file ORBITALS.DAT.BIN
 		void read_pfcidump();
 	    void gen_aux_basis(); // Putting this here temporarily
 		std::vector< std::vector<size_t> > alpha_str, beta_str;
@@ -54,6 +54,7 @@ class Hamiltonian {
 		bool identical(std::vector<size_t> &s1, std::vector<size_t> &s2);
 		void test1(); // Runs the calculation of the ground state enery of the hydrogen atom 
 		              // If the parameters are set properly in the input file
+		void test2(); // Runs poisson solver; Should be used with -DPOLYMER at compile time
 
 
     private:

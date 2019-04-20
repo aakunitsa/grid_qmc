@@ -60,6 +60,39 @@ subroutine finalize_poisson() bind (C, name = 'finalize_poisson_')
 
 end subroutine 
 
+DOUBLE PRECISION FUNCTION ERI(Ci, Cj, Ck, Cl) bind (C, name = 'eri_fortran_')
+
+   ! My very own Fortran function that calculates ERI-s
+   ! Created for benchmarking purposes
+
+   use iso_c_binding 
+   USE CONSTANTS
+   USE DFT
+   USE STRUCTURE
+   USE SINANOGLU
+
+   implicit none
+
+   double precision, intent(in) :: Ci(maxngrid), Cj(maxngrid), Ck(maxngrid), Cl(maxngrid)
+
+   integer :: i, ia
+   double precision :: den_ij(1:maxngrid,1), pot_ij(1:maxngrid,1), den_kl(1:maxngrid,1)
+
+   den_ij(:,1) = Ci * Cj
+   den_kl(:, 1) = Ck * Cl
+   pot_ij(:, 1) = 0.0D0
+   eri = 0.0D0
+
+   call construct_potential(den_ij, pot_ij)
+
+   DO IA=1,NATOM
+    DO I=1,NGRID(IA)
+     eri=eri+pot_ij(I,IA)*den_kl(I,IA)*GRIDW(I,IA)
+    ENDDO
+   ENDDO
+
+END FUNCTION ERI
+
 SUBROUTINE CONSTRUCT_potential(ORB1,ORB2) bind (C, name = 'construct_potential_')
 ! Construct a Coulomb potential by solving Poisson's equation
 
@@ -73,24 +106,65 @@ SUBROUTINE CONSTRUCT_potential(ORB1,ORB2) bind (C, name = 'construct_potential_'
    IMPLICIT NONE
    DOUBLE PRECISION :: ORB1(MAXNGRID,NATOM)
    DOUBLE PRECISION :: ORB2(MAXNGRID,NATOM)
-   DOUBLE PRECISION :: ORB3(MAXNGRID)
+   DOUBLE PRECISION :: ORB3(MAXNGRID), ORB4(MAXNGRID)
    DOUBLE COMPLEX   :: RTEMP(0:LMAX,-LMAX:LMAX,RG)
    DOUBLE COMPLEX   :: W1(RG)
    DOUBLE PRECISION :: W2(RG,RG),W3(RG,2)
    INTEGER :: I,J,L,M,INFO,IA,IB
    INTEGER :: INDX(RG)
+   double precision :: err, r
+   double complex :: ylm_val
 
    !print*, 'Maxngrid = ', MAXNGRID
+   !print*, 'Lmax = ', LMAX
+   !print*, NATOM
+
+   !print*, 'Spherical harmonic table for the grid'
+   !do ia = 1, natom
+   !  do L = 0, LMAX
+   !    do m = -L, L
+   !     write(*, *)  L, m
+   !     do i = 1, ngrid(ia)
+   !       call RYLM(l,m,i,r,ylm_val, ia, ia)
+   !       write(*, '(2f28.20)') dreal(ylm_val), dimag(ylm_val) 
+   !     end do
+   !    end do
+   !  end do
+   !end do
 
    ORB2=0.0D0
    DO IA=1,NATOM
     DO I=1,NGRID(IA)
      ORB3(I)=ORB1(I,IA) ! FUZZY has been removed
+     !print *, GRIDW(I, IA)
     ENDDO
+    !DO I=1,NGRID(IA)
+    ! write(*,'(3f28.20)') GRIDX(I, IA), GRIDY(I, IA), GRIDZ(I, IA)
+    !ENDDO
     !write(*,*) 'Copied density (inside poisson solver)'
 !write(*,*) 'charge for center',ia,'is',r1
     CALL EXPAND2YLM(ORB3,RTEMP,IA,IA)
     !print*, 'performed spherical wave expansion of the density'
+    !print*, 'radial functions will be printed below'
+    !do l = 0, LMAX
+    !  do m = -l, l
+    !    print*, ' L = ', l, ' M = ', m 
+    !    do i = 1, RG
+    !      write(*, '(2f28.20)') dreal(rtemp(l, m, i)), dimag(rtemp(l, m, i))
+    !    end do
+    !  end do
+    !end do
+    ! pack rtemp to see if it would produce the original density
+    !ORB4 = 0.0D0
+    !CALL PACKYLM(ORB4,RTEMP,IA,IA)
+    ! Compare
+    !ORB4 = ORB4 - ORB3
+    !err = maxval(abs(ORB4))
+    !if (err .gt. 1.0D-10) then 
+    !    print*, 'Inaccurate spherical wave expansion in Poisson solver!'
+    !    print*, 'Maximum error is ', err
+    !end if
+
     !print*, 'starting poisson solver...'
     DO L=0,LMAX
      DO M=-L,L
@@ -222,14 +296,15 @@ SUBROUTINE EXPAND2YLM(F,R,DEST,ORIG)
 
    IMPLICIT NONE
    INTEGER :: DEST,ORIG
-   DOUBLE PRECISION :: F(AG,RG)
+!   DOUBLE PRECISION :: F(AG,RG)
+   DOUBLE PRECISION :: F(AG * RG)
    DOUBLE COMPLEX   :: YLM
    DOUBLE COMPLEX   :: R(0:LMAX,-LMAX:LMAX,RG)
    DOUBLE PRECISION :: R1
    INTEGER :: I,J,K,L,M
 
-   F(AG,RG) = 1.0D0
-   R(LMAX,LMAX,RG) = 1.0D0
+   !F(AG,RG) = 1.0D0
+   !R(LMAX,LMAX,RG) = 1.0D0
    !print*, 'Inside expand2ylm'
    !print*, RG, AG
 
@@ -241,7 +316,8 @@ SUBROUTINE EXPAND2YLM(F,R,DEST,ORIG)
       DO J=1,AG      ! LOOP OVER ANGULAR GRID POINTS
        K=K+1
        CALL RYLM(L,M,K,R1,YLM,DEST,ORIG) ! GET R & YLM AT THE POINT
-       R(L,M,I)=R(L,M,I)+DCONJG(YLM)*F(J,I)*SG_LEBEDVW(J)
+       !R(L,M,I)=R(L,M,I)+DCONJG(YLM)*F(J,I)*SG_LEBEDVW(J)
+       R(L,M,I)=R(L,M,I)+DCONJG(YLM)*F(J + (I - 1) * AG )*SG_LEBEDVW(J)
       ENDDO
      ENDDO
     ENDDO
@@ -399,6 +475,7 @@ SUBROUTINE C2SPHERICAL(R,THETA,PHI,I,DEST,ORIG)
    INTEGER :: DEST,ORIG
    DOUBLE PRECISION :: X,Y,Z
    DOUBLE PRECISION :: R,THETA,PHI
+   DOUBLE PRECISION :: RXY
 
    X=ATOMX(DEST)+GRIDX(I,DEST)-ATOMX(ORIG)
    Y=ATOMY(DEST)+GRIDY(I,DEST)-ATOMY(ORIG)
@@ -416,10 +493,20 @@ SUBROUTINE C2SPHERICAL(R,THETA,PHI,I,DEST,ORIG)
    ELSE
     PHI=DATAN(Y/X)+PI
    ENDIF
+!   RXY = DSQRT(X**2 + Y**2) 
+!   IF (RXY > TINY(RXY)) THEN
+!       PHI = ACOS(X/RXY)
+!   ELSE
+!       PHI = 2*PI
+!   ENDIF
+!   IF (Y < TINY(Y)) THEN
+!       PHI = 2.0D0 * PI - PHI
+!   ENDIF
+
 ! DEBUG CODE ...
-!  IF (DABS(Z-DCOS(THETA))>1.0D-10) WRITE(*,*) 'Z',Z,DCOS(THETA)
-!  IF (DABS(X-DSIN(THETA)*DCOS(PHI))>1.0D-10) WRITE(*,*) 'X',X,DSIN(THETA)*DCOS(PHI)
-!  IF (DABS(Y-DSIN(THETA)*DSIN(PHI))>1.0D-10) WRITE(*,*) 'Y',Y,DSIN(THETA)*DSIN(PHI)
+  IF (DABS(Z-R*DCOS(THETA))>1.0D-10) WRITE(*,*) 'Z',Z,R*DCOS(THETA)
+  IF (DABS(X-R*DSIN(THETA)*DCOS(PHI))>1.0D-10) WRITE(*,*) 'X',X,R*DSIN(THETA)*DCOS(PHI), PHI/PI
+  IF (DABS(Y-R*DSIN(THETA)*DSIN(PHI))>1.0D-10) WRITE(*,*) 'Y',Y,R*DSIN(THETA)*DSIN(PHI), PHI/PI
 ! ... END DEBUG
    RETURN
 END SUBROUTINE
