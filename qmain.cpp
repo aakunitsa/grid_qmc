@@ -69,15 +69,16 @@ int main(int argc, char **argv) {
 
 	//return 0;
 	//h.gen_aux_basis();
-	h.build_basis();
-	auto e = h.diag();
-#ifdef POLYMER
+	//h.build_basis();
+	//auto e = h.diag();
+#if defined(POLYMER) || defined(AUX_POLYMER) || defined(NORMAL_POLYMER) || defined(NORMAL_POLYMER1)
+	std::cout << "Saving ERI-s and core hamiltonian matrix elements... " << std::endl;
 	//h.test2();
-    h.pfcidump();
+    h.pfcidump(); 
 	//h.compare_fcidump();
 #endif
 	//auto e = h.diag_davidson(10);
-
+/*
     std::sort(e.begin(), e.end());
 
     std::cout << " Printing the first 50 eigenvalues of the hamiltonian " << std::endl;
@@ -85,7 +86,7 @@ int main(int argc, char **argv) {
 	for (size_t i = 0; i < std::min(size_t(50), e.size()); i++) 
 		std::cout << e[i] << std::endl;
 
-
+*/
 /*
     if (q.params["rng"] == 32) {
         std::uniform_int_distribution<int> u6(1,6);

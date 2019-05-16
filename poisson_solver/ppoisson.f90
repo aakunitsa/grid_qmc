@@ -110,10 +110,19 @@ SUBROUTINE CONSTRUCT_potential(ORB1,ORB2) bind (C, name = 'construct_potential_'
    DOUBLE COMPLEX   :: RTEMP(0:LMAX,-LMAX:LMAX,RG)
    DOUBLE COMPLEX   :: W1(RG)
    DOUBLE PRECISION :: W2(RG,RG),W3(RG,2)
+#if defined(EXPERT_LAPACK)
+   DOUBLE PRECISION :: W2F(RG,RG), C(RG), R(RG), B(RG, 2)
+   DOUBLE PRECISION :: RCOND, FERR(2), BERR(2)
+   DOUBLE PRECISION :: WRK(4*RG)
+   INTEGER          :: IWRK(RG)
+   DOUBLE PRECISION, PARAMETER :: ERR_THRESH = 1E-8
+   LOGICAL :: ERR_OCCURRED
+   CHARACTER*1 :: EQUIL
+#endif
    INTEGER :: I,J,L,M,INFO,IA,IB
    INTEGER :: INDX(RG)
-   double precision :: err, r
-   double complex :: ylm_val
+!   double precision :: err, r
+!   double complex :: ylm_val
 
    !print*, 'Maxngrid = ', MAXNGRID
    !print*, 'Lmax = ', LMAX
@@ -136,36 +145,8 @@ SUBROUTINE CONSTRUCT_potential(ORB1,ORB2) bind (C, name = 'construct_potential_'
    DO IA=1,NATOM
     DO I=1,NGRID(IA)
      ORB3(I)=ORB1(I,IA) ! FUZZY has been removed
-     !print *, GRIDW(I, IA)
     ENDDO
-    !DO I=1,NGRID(IA)
-    ! write(*,'(3f28.20)') GRIDX(I, IA), GRIDY(I, IA), GRIDZ(I, IA)
-    !ENDDO
-    !write(*,*) 'Copied density (inside poisson solver)'
-!write(*,*) 'charge for center',ia,'is',r1
     CALL EXPAND2YLM(ORB3,RTEMP,IA,IA)
-    !print*, 'performed spherical wave expansion of the density'
-    !print*, 'radial functions will be printed below'
-    !do l = 0, LMAX
-    !  do m = -l, l
-    !    print*, ' L = ', l, ' M = ', m 
-    !    do i = 1, RG
-    !      write(*, '(2f28.20)') dreal(rtemp(l, m, i)), dimag(rtemp(l, m, i))
-    !    end do
-    !  end do
-    !end do
-    ! pack rtemp to see if it would produce the original density
-    !ORB4 = 0.0D0
-    !CALL PACKYLM(ORB4,RTEMP,IA,IA)
-    ! Compare
-    !ORB4 = ORB4 - ORB3
-    !err = maxval(abs(ORB4))
-    !if (err .gt. 1.0D-10) then 
-    !    print*, 'Inaccurate spherical wave expansion in Poisson solver!'
-    !    print*, 'Maximum error is ', err
-    !end if
-
-    !print*, 'starting poisson solver...'
     DO L=0,LMAX
      DO M=-L,L
       DO I=1,RG
@@ -182,7 +163,31 @@ SUBROUTINE CONSTRUCT_potential(ORB1,ORB2) bind (C, name = 'construct_potential_'
        W3(I,1)=-4.0D0*PI*SG_GAUSS_CHEV(I,IA)*DREAL(RTEMP(L,M,I))
        W3(I,2)=-4.0D0*PI*SG_GAUSS_CHEV(I,IA)*DIMAG(RTEMP(L,M,I))
       ENDDO
+#if defined(EXPERT_LAPACK)
+      ERR_OCCURRED = .FALSE.
+      B = W3 ! RHS; Solution will be saved to W3
+      CALL DGESVX('E','N',RG,2,W2,RG,W2F,RG,INDX,EQUIL,R,C,B,RG,W3,RG,RCOND,FERR,BERR,WRK,IWRK,INFO)
+
+      if ((FERR(1) .gt. ERR_THRESH) .or. (BERR(1) .gt. ERR_THRESH)) THEN
+          ! Issue warning
+          ERR_OCCURRED = .TRUE.
+          write(*, *) '...Error threshold exceeded in poisson solver!'
+          write(*, '(A, 1x, E20.10)') '...Error estimate (real part)', max(ferr(1), berr(1))
+      end if
+
+      if ((FERR(2) .gt. ERR_THRESH) .or. (BERR(2) .gt. ERR_THRESH)) THEN
+          ! Issue warning
+          ERR_OCCURRED = .TRUE.
+          write(*, *) '...Error threshold exceeded in poisson solver!'
+          write(*, '(A, 1x, E20.10)') '...Error estimate (imaginary part)', max(ferr(2), berr(2))
+      end if
+
+      if (ERR_OCCURRED) THEN
+          write(*,*) 'Condition number of the linear system is ', RCOND
+      end if
+#else
       CALL DGESV(RG,2,W2,RG,INDX,W3,RG,INFO)
+#endif
       !IF (INFO /= 0) CALL PABORT('DGESV FAILED')
       IF (INFO /= 0) stop
       DO I=1,RG

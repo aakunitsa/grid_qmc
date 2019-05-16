@@ -1,9 +1,9 @@
 MF = Makefile
 CC = g++
 FC = gfortran
-CFLAGS = -march=native -ffast-math -O2 -std=c++17 -I$(HOME)/local/include -I$(HOME)/arma_latest/include -DMT64 -DARMA_DONT_USE_WRAPPER -DPOLYMER
+CFLAGS = -march=native -ffast-math -O2 -std=c++17 -I$(HOME)/local/include -I$(HOME)/arma_latest/include -DMT64 -DARMA_DONT_USE_WRAPPER -DNORMAL_POLYMER1
 #CFLAGS = -O0 -std=c++17 -I$(HOME)/local/include -I$(HOME)/arma_latest/include -DMT64 -DARMA_DONT_USE_WRAPPER -DAUXBAS
-FFLAGS = -O2 
+FFLAGS = -O2 -cpp
 #FFLAGS = -O0 
 #LFLAGS = $(HOME)/local/lib/libopenblas.a 
 #LFLAGS = $(HOME)/local/lib/libgsl.a $(HOME)/local/lib/libgslcblas.a -larmadillo -L$(HOME)/local/lib
