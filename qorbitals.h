@@ -58,6 +58,7 @@ class ShellSet {
 
 
 inline std::tuple<double, double> Y(int L, int M, double th, double p) {
+	// Note: GSL definition of Y does not include Condon-Shortley phase
     gsl_sf_result Leg;
     int phase = (M > 0 ? 1.0 : gsl_pow_int(-1.0, M));
     int status = gsl_sf_legendre_sphPlm_e(L, abs(M), cos(th), &Leg);
@@ -68,7 +69,14 @@ inline std::tuple<double, double> Y(int L, int M, double th, double p) {
     return std::make_tuple(phase * Leg.val * cos(M * p), phase * Leg.val * sin(M * p));
 }
 
-
+inline double rY(int L, int M, double th, double p) {
+	// Calculates real spherical harmonics
+	auto [re, im] = Y(L, abs(M), th, p);
+	double Y_real = (M < 0 ? im : re) * sqrt(2.) * gsl_pow_int(-1, M);
+	// Special case:
+	if (M == 0) Y_real = re;
+	return Y_real;
+}
 
 /*
 // This function is apparently incorrect...
