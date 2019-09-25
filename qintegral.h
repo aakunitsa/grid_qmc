@@ -11,10 +11,10 @@ class Integral_factory {
 
 	public:
 
-		Integral_factory(std::map<string, int> &p, ShellSet &orb);
+		Integral_factory(std::map<string, int> &p); // Make the second parameter optional?
 
 		// Member functions
-		void fcidump();
+		virtual void fcidump();
 
 		// Virtual member functions
 		virtual double hc(size_t i, size_t j) {return 0.0;}; // Evaluates one particle kinetic energy integral 
@@ -31,7 +31,6 @@ class Integral_factory {
 		bool check_orthogonality(double orth_thresh);
 
 		// Member variables
-		ShellSet &ss;
 	    Laplacian lp;
 
 };
@@ -59,6 +58,7 @@ class Aux_integrals : public Integral_factory {
 
 		// Member variables
 		int naux;
+		ShellSet &ss;
 		std::vector<double> aux_bf;
 		double Znuc;
 		string ofile; // Orbital file name 
@@ -66,6 +66,31 @@ class Aux_integrals : public Integral_factory {
 		// Member functions 
 		// WARNING: read_orbs needs to be refactored and should not be used for now
 		bool read_orbs(); // attempts to read orbitals; returns false on failure
+
+};
+
+class Saved_integrals : public Integral_factory {
+
+	// This class will just read FCIDUMP from disc
+	// and provide integrals upon request;
+	
+	public:
+
+		// Member functions
+		Saved_integrals(Params_reader &pr);
+
+		double hc(size_t i, size_t j); 
+		double ce(size_t i, size_t j, size_t k, size_t l);
+
+		bool good;
+
+	private:
+
+		// Member variables
+		std::map<int, double> eri, hcore;  
+
+		// Member functions
+		bool read_fcidump(string &int_file);
 
 };
 
@@ -92,6 +117,7 @@ class Grid_integrals : public Integral_factory {
 		Coulomb r12;
 		double Znuc;
 		std::vector<double> aux_bf;
+		ShellSet &ss;
 
 		// Member functions
 		inline std::tuple<size_t, size_t> unpack_orb_index(size_t i) {

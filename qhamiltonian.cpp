@@ -9,6 +9,7 @@
 #include <gsl/gsl_combination.h>
 #include <gsl/gsl_eigen.h>
 #include <gsl/gsl_vector.h>
+#include <gsl/gsl_sort.h>
 #include <gsl/gsl_matrix.h>
 #include <gsl/gsl_cblas.h>
 #include <tuple> // for tie function
@@ -20,29 +21,25 @@
 #include "poisson_fortran.h"
 #include <gsl/gsl_math.h>
 
-
-#define ALPHA 1
-#define BETA 0
-
-extern "C" void read_orbitals_(double *coeff);
-extern "C" void read_integrals_(int *idx, double *eri);
+#include "qintegral.h"
 
 
-Hamiltonian::Hamiltonian(std::map<string, int> &p, ShellSet &orb) : ss(orb), lp(p), r12(p), g(p) {
+//#define ALPHA 1 // Defined in the header file now
+//#define BETA 0
+
+
+
+Basis::Basis(std::map<string, int> &p, int n1porb_) : n1porb(n1porb_) {
+
+	// Note : n1porb does not have to coincide with the parameter in the Integral_factory 
+	//        class; For now I will leave it up to a programmer to ensure that
+	//        the class works with Hamiltonian as intended, i.e. the orbital labels 
+	//        are interpreted properly
+	
 
 	nel = p["electrons"];
 	size_t mult = p["mult"];
-	Znuc = double(p["Z"]);
 
-	// For debugging purposes compare the Shell Sets!
-	assert( ss.size() == orb.size() );
-	for (size_t i = 0; i < orb.size(); i++ ) {
-		assert ( orb.aorb[i] == ss.aorb[i] );
-	}
-
-
-	std::cout << " Number of electrons : " << nel <<  std::endl; 
-	std::cout << " Multiplicity : " << mult << std::endl; 
 
 	assert (nel > 0 && mult > 0);
 
@@ -57,155 +54,26 @@ Hamiltonian::Hamiltonian(std::map<string, int> &p, ShellSet &orb) : ss(orb), lp(
 		nbeta = (nel - mult + 1) / 2;  // Can be zero
 	}
 
-	std::cout << "Number of alpha electrons is " << nalpha << std::endl;
-	std::cout << "Number of beta electrons is " << nbeta << std::endl;
-
-#ifdef AUXBAS
-	gen_aux_basis();
-	n1porb = ss.size() * naux;
-	int iatom = int(Znuc), nrad = int(g.nrad) , nang = int(g.nang);
-	initialize_poisson_(&nrad, &nang, &iatom);
-#endif
-
-#ifdef POLYMER
-	//read_porbs(0);
-	read_porbs(1);
-	n1porb = porb;
-	int iatom = int(Znuc), nrad = int(g.nrad) , nang = int(g.nang);
-	initialize_poisson_(&nrad, &nang, &iatom);
-#endif
-
-#ifdef AUX_POLYMER
-	gen_aux_basis();
-	n1porb = ss.size() * naux;
-	porb = n1porb; // Otherwise it will segfault in pfcidump
-	int iatom = int(Znuc), nrad = int(g.nrad) , nang = int(g.nang);
-	initialize_poisson_(&nrad, &nang, &iatom);
-	paux_bf.resize(n1porb * nrad * nang);
-	// Populate paux_bf using real spherical harmonics
-	// This is a naive and inefficient approach; should probably
-	// just represent all the Ylm-s on the Lebedev grid first and then 
-	// combine those with aux_bf
-	
-
-	for (int ridx = 0; ridx < naux; ridx++) {
-		for (int oidx = 0; oidx < ss.size(); oidx++) {
-			auto &o = ss.aorb[oidx];
-			for (int r = 0; r < nrad; r++) {
-				for (int a = 0; a < nang; a++) {
-					auto [th, p] = g.thetaphi_ang[a];
-					auto [re, im] = Y(o.L, abs(o.M), th, p);
-					double Y_real = (o.M < 0 ? im : re) * sqrt(2.) * gsl_pow_int(-1, o.M);
-					// Special case:
-					if (o.M == 0) Y_real = re;
-					paux_bf[ (ridx * ss.size() + oidx) * nang * nrad + r * nang + a ] = aux_bf[ridx * nrad + r] * Y_real;
-				}
-			}
-		}
-	}
-
-	// As a simple test check orthogonality of the generated orbitals
-	double orth_thresh = 1e-6;
-	for (int i = 0; i < n1porb; i++) {
-		for (int j = 0; j < n1porb; j++) {
-			double d_prod = 0.0;
-			for (int r = 0; r < nrad; r++) {
-				for (int a = 0; a < nang; a++) {
-					int g_idx = r * nang + a;
-					d_prod += 4. * M_PI * g.gridw_r[r] * g.gridw_a[a] * paux_bf[ i * nang * nrad + g_idx] * paux_bf[ j * nang * nrad + g_idx ];
-				}
-			}
-
-			if (i!= j) assert (abs(d_prod) <= orth_thresh);
-			if (i == j) assert (abs(d_prod - 1.0) <= orth_thresh);
-		}
-	}
-
-#endif
-// Note : Normal polymer1 does not actually use the poisson solver from polymer
-// to generate integrals but istead utilizes laplace expansion
-
-#if defined(NORMAL_POLYMER) || defined(NORMAL_POLYMER1) || defined(NORMAL_POLYMER2)
-	n1porb = ss.size() * g.nrad;
-	porb = n1porb; // Otherwise it will segfault in pfcidump
-	int iatom = int(Znuc), nrad = int(g.nrad) , nang = int(g.nang);
-	//initialize_poisson_(&nrad, &nang, &iatom); // turn it on if NORMAL_POLYMER is wanted!
-	paux_bf.resize(n1porb * nrad * nang);
-	aux_bf.resize(g.nrad * g.nrad);
-	std::fill(aux_bf.begin(), aux_bf.end(), 0.0);
-	for (int i = 0; i < g.nrad; i++) aux_bf[i * g.nrad + i] = 1./ sqrt(g.gridw_r[i]);
-
-	// Populate paux_bf using real spherical harmonics
-	// This is a naive and inefficient approach; should probably
-	// just represent all the Ylm-s on the Lebedev grid first and then 
-	// combine those with aux_bf
-	
-
-	for (int ridx = 0; ridx < g.nrad; ridx++) {
-		for (int oidx = 0; oidx < ss.size(); oidx++) {
-			auto &o = ss.aorb[oidx];
-			for (int r = 0; r < nrad; r++) {
-				for (int a = 0; a < nang; a++) {
-					auto [th, p] = g.thetaphi_ang[a];
-					auto [re, im] = Y(o.L, abs(o.M), th, p);
-					double Y_real = (o.M < 0 ? im : re) * sqrt(2.) * gsl_pow_int(-1, o.M);
-					// Special case:
-					if (o.M == 0) Y_real = re;
-					paux_bf[ (ridx * ss.size() + oidx) * nang * nrad + r * nang + a ] = aux_bf[ridx * nrad + r] * Y_real;
-				}
-			}
-		}
-	}
-
-	// As a simple test check orthogonality of the generated orbitals
-	double orth_thresh = 1e-6;
-	for (int i = 0; i < n1porb; i++) {
-		for (int j = 0; j < n1porb; j++) {
-			double d_prod = 0.0;
-			for (int r = 0; r < nrad; r++) {
-				for (int a = 0; a < nang; a++) {
-					int g_idx = r * nang + a;
-					d_prod += 4. * M_PI * g.gridw_r[r] * g.gridw_a[a] * paux_bf[ i * nang * nrad + g_idx] * paux_bf[ j * nang * nrad + g_idx ];
-				}
-			}
-
-			if (i!= j) assert (abs(d_prod) <= orth_thresh);
-			if (i == j) assert (abs(d_prod - 1.0) <= orth_thresh);
-		}
-	}
-
-#endif
-
-#ifdef POLYMER_WITH_ERI
-	read_pfcidump();
-	n1porb = porb;
-	//gen_eri_lookup(porb);
-#endif
-	
-#ifdef NORMAL 
-	n1porb = ss.size() * g.nrad; // each radial point can be combined with any angular orbital 
-#endif
-
-	assert (ss.L_max <= g.L_max);
+	// I will remove the printout later since it will reappear every time when we construct the class
 
 	std::cout << "Based one the combination of charge/multiplicity from the input file: " << std::endl;
 	std::cout << "=> The number of alpha electrons is " << nalpha << std::endl;
 	std::cout << "=> The number of beta electrons is " << nbeta << std::endl;
+	std::cout << "=> Multiplicity : " << mult << std::endl; 
 
 	assert ( nalpha + nbeta == nel ) ;
 
 }
 
-
-void Hamiltonian::build_basis() {
+void DetBasis::build_basis() {
 
     printf("Number of orbitals %10d\n", n1porb); // Those are spatial orbitals; contrast with QMC_grid
 
     gsl_combination *c;
 
     if (nalpha != 0) {
-        printf("The number of alpha electrons is %5d\n", nalpha);
-        c = gsl_combination_calloc(n1porb, nalpha);
+        //printf("The number of alpha electrons is %5d\n", nalpha);
+        c = gsl_combination_calloc(n1porb, nalpha); // Note that calloc is used to initialize c so it contains (1, 2, 3, ....)
         do {
             size_t *c_ind = gsl_combination_data(c);
 			std::vector<size_t> l ( c_ind, c_ind + nalpha );
@@ -238,7 +106,7 @@ void Hamiltonian::build_basis() {
 #endif
     
     if (nbeta != 0) {
-        printf("The number of beta electrons is %5d\n", nbeta);
+        //printf("The number of beta electrons is %5d\n", nbeta);
         c = gsl_combination_calloc(n1porb, nbeta);
         do {
             size_t *c_ind = gsl_combination_data(c);
@@ -269,48 +137,117 @@ void Hamiltonian::build_basis() {
 	}
 
 #endif
-
+// This should be moved to the Hamiltonian class; will keep it here temporarily
+/*
 	std::cout << "Calculating H diagonal " << std::endl; // Will later be used by DAvidson solver
-	H_diag.resize(get_basis_size());
-	//iperm.resize(get_basis_size());
+	H_diag = build_diagonal();
+    // This is temporary
+	std::sort(H_diag.begin(), H_diag.end());	
+	std::cout << "The diagonal part of the hamiltonian will be printed below " << std::endl;
+	for (auto &h : H_diag)
+    	printf("%20.10f\n", h);
+*/
 
-	for (size_t i = 0; i < get_basis_size(); i++) {
+	std::cout << "Generating connectivity list for the basis " << std::endl;
+	size_t bas_size = get_basis_size();
+	for (size_t i = 0; i < bas_size; i++) {
+		std::vector<size_t> neigh_list {i};
+		auto [ia, ib] = unpack_str_index(i);
+		for (size_t j = 0; j < bas_size; j++) {
+			if (j == i) continue;
+			auto [ja, jb] = unpack_str_index(j);
+			auto alpha_order = ex_order(ia, ja, ALPHA), beta_order = (nbeta > 0 ? ex_order(ib, jb, BETA) : 0);
+			if ((alpha_order == 2 && beta_order == 0) || (alpha_order == 0 && beta_order == 2) || 
+				(alpha_order == 1 && beta_order == 1)) neigh_list.push_back(j);
+		}
+		std::sort(neigh_list.begin(), neigh_list.end());
+		clist.push_back(neigh_list);
+	}
+	
+}
+
+TruncatedBasis::TruncatedBasis(std::map<string, int> &p, int n1porb, int subspace_size_, std::vector<double> &h_diag, DetBasis &d) : 
+				Basis(p, n1porb), full_bas(d) {
+
+	subspace_size = subspace_size_;
+	smap.resize(subspace_size);
+	assert (full_bas.get_basis_size() == h_diag.size()); // We require that the diagonal is consistent with full_bas
+	// Sort the diagonal and extract a set of subspace_size lowest energy determinants
+	std::vector<size_t> iperm(full_bas.get_basis_size());
+	gsl_sort_index(iperm.data(), h_diag.data(), 1, get_basis_size());
+	std::copy(iperm.begin(), std::next(iperm.begin(), subspace_size), smap.begin());
+
+}
+
+Hamiltonian::Hamiltonian(std::map<string, int> &p, Integral_factory &int_f, Basis &nel_basis) : ig(int_f), bas(nel_basis) { }
+
+vector<double> Hamiltonian::build_diagonal() {
+
+	std::vector<double> tmp_H_diag(bas.get_basis_size(), 0.0);
+	auto [ nalpha, nbeta ] = bas.get_ab(); // number of alpha and beta electrons
+	size_t nel = nalpha + nbeta; // total number of electrons
+
+	for (size_t i = 0; i < bas.get_basis_size(); i++) {
 		double Hii = 0.0;
 
-		auto [ ia, ib ] = unpack_str_index(i);
+		auto [ ia, ib ] = bas.unpack_str_index(i);
+		auto [num_alpha_str , num_beta_str] = bas.get_num_str(); // provides sizes of alpha and beta string sets
 		//std::cout << " ia " << ia << std::endl;
-		Hii += evaluate_kinetic(ia, ia, ALPHA);
-		Hii += evaluate_nuc(ia, ia, ALPHA); // Will have to uncomment it later
+		Hii += evaluate_core(ia, ia, ALPHA); // No Kroneker symbol because of the diagonal
 		if (nel > 1) {
 			// Check if the string index is within bounds 
-			assert ( ia < alpha_str.size() && ia < alpha_str.size() );
+			assert ( ia < num_alpha_str );
 			Hii += evaluate_coulomb(ia, ia, ALPHA);
 		}
-		if (beta_str.size() > 0) {
-			assert(false); // Should never hit this instruction for He 3S
+		if (num_beta_str > 0) {
 
-			Hii += evaluate_kinetic(ib, ib, BETA);
-			Hii += evaluate_nuc(ib, ib, BETA);
+			Hii += evaluate_core(ib, ib, BETA);
 			if (nel > 1) {
 				Hii += evaluate_coulomb(ib, ib, BETA);
 				Hii += evaluate_coulomb_coupled(ia, ib, ia, ib); // does not need Kroneker delta
 		    }	
 		}
 
-		H_diag[i] = Hii;
+		tmp_H_diag[i] = Hii;
 	}
 
 	// After diagonal has been calculated - perform indirect sorting to populate iperm
-	
+	//iperm.resize(get_basis_size());
 	//gsl_sort_index(iperm.data(), H_diag.data(), 1, get_basis_size());
-
-    // This is temporary
-	std::sort(H_diag.begin(), H_diag.end());	
-	std::cout << " The diagonal part of the hamiltonian will be printed below " << std::endl;
-	for (auto &h : H_diag)
-    	printf("%20.10f\n", h);
 	
+	return tmp_H_diag;
+
 }
+double Hamiltonian::matrix(size_t i, size_t j) {
+
+	auto [ ia, ib ] = bas.unpack_str_index(i);
+	auto [ ja, jb ] = bas.unpack_str_index(j);
+
+	auto [ num_alpha_str, num_beta_str ]  = bas.get_num_str();
+	auto [ nalpha, nbeta ] = bas.get_ab(); // number of alpha and beta electrons
+	size_t nel = nalpha + nbeta; // total number of electrons
+	assert ( ia < num_alpha_str && ja < num_alpha_str);
+	if (nbeta > 0) assert (ib < num_beta_str && jb < num_beta_str);
+
+	double Hij = 0.0;
+
+	Hij += evaluate_core(ia, ja, ALPHA) * (ib == jb ? 1. : 0.);
+	if (nel > 1) {
+		// Check if the string index is within bounds 
+		assert ( ia < num_alpha_str && ja < num_alpha_str );
+		Hij += evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
+	}
+	if (num_beta_str > 0) {
+		Hij += evaluate_core(ib, jb, BETA)* (ia == ja ? 1. : 0.);
+		if (nel > 1) {
+			Hij += evaluate_coulomb(ib, jb, BETA) * (ia == ja ? 1. : 0.);
+			Hij += evaluate_coulomb_coupled(ia, ib, ja, jb); // does not need Kroneker delta
+	    }	
+	}
+
+	return Hij;
+}
+
 
 vector<double> Hamiltonian::diag() {
 
@@ -318,9 +255,11 @@ vector<double> Hamiltonian::diag() {
 	// so that one could see if the Davidson solver will perform well in this
 	// case
 
-	size_t num_alpha_str = alpha_str.size(), num_beta_str = beta_str.size();
+	auto [ num_alpha_str, num_beta_str ]  = bas.get_num_str();
     assert ( num_alpha_str != 0 || num_beta_str != 0);
-    size_t n_bf = get_basis_size();
+    size_t n_bf = bas.get_basis_size();
+	auto [ nalpha, nbeta ] = bas.get_ab(); // number of alpha and beta electrons
+	size_t nel = nalpha + nbeta; // total number of electrons
 
     gsl_matrix *h_grid = gsl_matrix_calloc(n_bf, n_bf);
     gsl_matrix *eigvecs = gsl_matrix_calloc(n_bf, n_bf);
@@ -338,28 +277,22 @@ vector<double> Hamiltonian::diag() {
         for (int j = i; j < n_bf; j++) {
 			// Identify alpha/beta strings corresponding to i and j;
 
-			auto [ ia, ib ] = unpack_str_index(i);
-			auto [ ja, jb ] = unpack_str_index(j);
+			auto [ ia, ib ] = bas.unpack_str_index(i);
+			auto [ ja, jb ] = bas.unpack_str_index(j);
 
 			assert ( ia < num_alpha_str && ja < num_alpha_str);
 			if (nbeta > 0) assert (ib < num_beta_str && jb < num_beta_str);
 
 			double Hij = 0.0;
 
-			Hij += evaluate_kinetic(ia, ja, ALPHA) * (ib == jb ? 1. : 0.);
-			Hij += evaluate_nuc(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
-			//Hij += 0.5 * (evaluate_kinetic(ia, ja, ALPHA) * (ib == jb ? 1. : 0.) + evaluate_kinetic(ja, ia, ALPHA) * (ib == jb ? 1. : 0.));
-			//Hij += 0.5 * (evaluate_nuc(ia, ja, ALPHA)* (ib == jb ? 1. : 0.) + evaluate_nuc(ja, ia, ALPHA)* (ib == jb ? 1. : 0.));
+			Hij += evaluate_core(ia, ja, ALPHA) * (ib == jb ? 1. : 0.);
 			if (nel > 1) {
 				// Check if the string index is within bounds 
 				assert ( ia < num_alpha_str && ja < num_alpha_str );
 				Hij += evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
-				//Hij += 0.5 * (evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.) + evaluate_coulomb(ja, ia, ALPHA)* (ib == jb ? 1. : 0.));
 			}
-			if (beta_str.size() > 0) {
-				assert (false); // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! REMOVE IT
-				Hij += evaluate_kinetic(ib, jb, BETA)* (ia == ja ? 1. : 0.);
-				Hij += evaluate_nuc(ib, jb, BETA)* (ia == ja ? 1. : 0.);
+			if (num_beta_str > 0) {
+				Hij += evaluate_core(ib, jb, BETA)* (ia == ja ? 1. : 0.);
 				if (nel > 1) {
 					Hij += evaluate_coulomb(ib, jb, BETA) * (ia == ja ? 1. : 0.);
 					Hij += evaluate_coulomb_coupled(ia, ib, ja, jb); // does not need Kroneker delta
@@ -375,12 +308,6 @@ vector<double> Hamiltonian::diag() {
 
     printf("Done!\n");
 
-#ifdef AUXBAS
-	finalize_poisson_();
-#endif
-#if defined(POLYMER) || defined(AUX_POLYMER) || defined(NORMAL_POLYMER) || defined(NORMAL_POLYMER1)
-	finalize_poisson_();
-#endif
 
 	printf("|max Hii| / | max Hij (i != j) | = %20.10f\n", max_d/ max_offd);
 
@@ -463,13 +390,16 @@ std::vector<double> diag_davidson(size_t nstates) {
 
 }
 */
+
 std::vector<double> Hamiltonian::diag_davidson(size_t nstates) {
 
     double tol = 1.e-6; // Convergence tollerance
 
-    size_t num_alpha_str = alpha_str.size(), num_beta_str = beta_str.size();
+	auto [ num_alpha_str, num_beta_str ]  = bas.get_num_str();
     assert ( num_alpha_str != 0 || num_beta_str != 0);
-    size_t n_bf = get_basis_size();
+    size_t n_bf = bas.get_basis_size();
+	auto [ nalpha, nbeta ] = bas.get_ab(); // number of alpha and beta electrons
+	size_t nel = nalpha + nbeta; // total number of electrons
 
     //arma::sp_mat h_grid(n_bf, n_bf, arma::fill::zeros);
     arma::sp_mat h_grid(n_bf, n_bf);
@@ -486,35 +416,33 @@ std::vector<double> Hamiltonian::diag_davidson(size_t nstates) {
         for (int j = i; j < n_bf; j++) {
 	// Identify alpha/beta strings corresponding to i and j;
 
-            auto [ ia, ib ] = unpack_str_index(i);
-            auto [ ja, jb ] = unpack_str_index(j);
+            auto [ ia, ib ] = bas.unpack_str_index(i);
+            auto [ ja, jb ] = bas.unpack_str_index(j);
 
             assert ( ia < num_alpha_str && ja < num_alpha_str);
             if (nbeta > 0) assert (ib < num_beta_str && jb < num_beta_str);
 
             double Hij = 0.0;
 
-            Hij += evaluate_kinetic(ia, ja, ALPHA) * (ib == jb ? 1. : 0.);
-            Hij += evaluate_nuc(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
+            Hij += evaluate_core(ia, ja, ALPHA) * (ib == jb ? 1. : 0.);
             if (nel > 1) {
             // Check if the string index is within bounds 
                 assert ( ia < num_alpha_str && ja < num_alpha_str );
-		Hij += evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
-	    }
-	    if (beta_str.size() > 0) {
-		Hij += evaluate_kinetic(ib, jb, BETA)* (ia == ja ? 1. : 0.);
-		Hij += evaluate_nuc(ib, jb, BETA)* (ia == ja ? 1. : 0.);
-		if (nel > 1) {
-                    Hij += evaluate_coulomb(ib, jb, BETA) * (ia == ja ? 1. : 0.);
-                    Hij += evaluate_coulomb_coupled(ia, ib, ja, jb); // does not need Kroneker delta
-		}	
-	    }
+				Hij += evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
+			}
+			if (num_beta_str > 0) {
+			Hij += evaluate_core(ib, jb, BETA)* (ia == ja ? 1. : 0.);
+				if (nel > 1) {
+						Hij += evaluate_coulomb(ib, jb, BETA) * (ia == ja ? 1. : 0.);
+						Hij += evaluate_coulomb_coupled(ia, ib, ja, jb); // does not need Kroneker delta
+				}	
+			}
 
             if ( i == j ) max_d = std::max(max_d, std::abs(Hij));
             if ( i != j ) max_offd = std::max(max_offd, std::abs(Hij));
 
-	    h_grid(i, j) =  Hij; // Performs bounds checking; can be disabled at compile time
-	    h_grid(j, i) =  Hij; // Performs bounds checking; can be disabled at compile time
+			h_grid(i, j) =  Hij; // Performs bounds checking; can be disabled at compile time
+			h_grid(j, i) =  Hij; // Performs bounds checking; can be disabled at compile time
         }
 
     printf("Done!\n");
@@ -543,24 +471,26 @@ std::vector<double> Hamiltonian::diag_davidson(size_t nstates) {
 
 }
 
-double Hamiltonian::evaluate_kinetic(size_t is, size_t js, int type) {
+double Hamiltonian::evaluate_core(size_t is, size_t js, int type) {
 
 	// Note that is and js as spin string indeces; We need to process them
 	// to obtain orbital index lists
 	//
 	std::vector<size_t> is_v, js_v;
+	auto [nalpha, nbeta] = bas.get_ab();
+	auto [alpha_str_num, beta_str_num] = bas.get_num_str();
 	
 	if (type == ALPHA) {
 
-		assert ( is < alpha_str.size() && js < alpha_str.size() );
+		assert ( is < alpha_str_num && js < alpha_str_num);
 
 		is_v.resize(nalpha);
 		js_v.resize(nalpha);
 
 		// The following should probably be refactored in the future
 
-		std::copy(alpha_str[is].begin(), alpha_str[is].end(), is_v.begin());
-		std::copy(alpha_str[js].begin(), alpha_str[js].end(), js_v.begin());
+		std::copy(bas.a(is).begin(), bas.a(is).end(), is_v.begin());
+		std::copy(bas.a(js).begin(), bas.a(js).end(), js_v.begin());
 
 		// Check strings generated by the copy function
         /*
@@ -575,8 +505,8 @@ double Hamiltonian::evaluate_kinetic(size_t is, size_t js, int type) {
 		is_v.resize(nbeta);
 		js_v.resize(nbeta);
 
-		std::copy(beta_str[is].begin(), beta_str[is].end(), is_v.begin());
-		std::copy(beta_str[js].begin(), beta_str[js].end(), js_v.begin());
+		std::copy(bas.b(is).begin(), bas.b(is).end(), is_v.begin());
+		std::copy(bas.b(js).begin(), bas.b(js).end(), js_v.begin());
         
 		/*
 		for ( const auto &o : is_v )
@@ -601,11 +531,11 @@ double Hamiltonian::evaluate_kinetic(size_t is, size_t js, int type) {
 	*/
 
 	if (from.size() ==  0) {
-		// Means that the two orbital strings are equivalent (should be literaly identical)
-		if ( nel == 2) assert ( js_v[0] == is_v[0] && js_v[1] == is_v[1] ); // Valid for 2e system with Sz = +-1
+		// Means that the two orbital strings are equivalent (should be identical)
+		// if ( nel == 2) assert ( js_v[0] == is_v[0] && js_v[1] == is_v[1] ); // Valid for 2e system with Sz = +-1
 		double integral = 0.0;
 		for (size_t i  = 0; i < (type == ALPHA ? nalpha : nbeta); i++ )
-			integral += ke(is_v[i], is_v[i]);
+			integral += ig.hc(is_v[i], is_v[i]);
 
 		return integral;
 
@@ -614,6 +544,7 @@ double Hamiltonian::evaluate_kinetic(size_t is, size_t js, int type) {
 		// The following will only be valid for 2e atoms and 
 		// is not generally true. Will be turned off for arbitrary 
 		// multielectron atoms
+		/*
         if (nel == 2) {
 			if (js_v[0] == is_v[0] || js_v[1] == is_v[1] ) {
 				assert (p == 1);
@@ -621,179 +552,25 @@ double Hamiltonian::evaluate_kinetic(size_t is, size_t js, int type) {
 				assert (p == -1);
 			}
 		}
-        
-		return p*ke(to[0], from[0]);
-		//return p*ke(from[0], to[0]);
+        */
+		return p * ig.hc(to[0], from[0]); // Check if hc is symmetric in the integral generator
 
 	} else {
 		return 0;
 	}
 }
 
-#ifdef NORMAL
-double Hamiltonian::evaluate_nuc(size_t is, size_t js, int type) {
-
-	// Note that is and js as spin string indeces; We need to process them
-	// to obtain orbital index lists
-	//
-	
-	double result = 0.0;
-
-	if (is !=  js) return 0.;
-
-	assert (is == js); // This should be the case if we reached this point
-	
-	if (type == ALPHA) {
-		// for each orbital in the alpha/beta string 
-		// extract the radial point index
-
-		for (const auto &i : alpha_str[is] ) {
-			size_t  ir = (i - i % ss.size()) / ss.size();
-			assert ( ir < g.nrad);
-			result += -Znuc / g.r[ir];
-		}
-
-
-	} else if (type  == BETA) {
-
-		for (const auto &i : beta_str[is] ) {
-			size_t  ir = (i - i % ss.size()) / ss.size();
-			assert ( ir < g.nrad);
-			result += -Znuc / g.r[ir];
-		}
-
-	}
-
-	return result;
-}
-#endif
-
-#ifdef AUXBAS
-double Hamiltonian::evaluate_nuc(size_t is, size_t js, int type) {
-
-	// Note that is and js as spin string indeces; We need to process them
-	// to obtain orbital index lists
-	//
-	
-    //arma::vec rad_i(&aux_bf[ir * g.nrad], g.nrad, false);
-	double result = 0.0;
-
-	auto &idet = (type == ALPHA ? alpha_str[is] : beta_str[is]);
-	auto &jdet = (type == ALPHA ? alpha_str[js] : beta_str[js]);
-
-	auto [p, from, to] = gen_excitation(jdet, idet);
-
-	assert(from.size() == to.size());
-
-	size_t ex_order = from.size();
-
-	if ( ex_order > 1) {
-
-		return 0.0;
-
-	} else if ( ex_order == 1) {
-		size_t  jr = (from[0] - from[0] % ss.size()) / ss.size();
-		size_t  ir = (to[0] - to[0] % ss.size()) / ss.size();
-		assert ( ir < naux  && jr < naux);
-        arma::vec rad_i(&aux_bf[ir * g.nrad], g.nrad, false);
-        arma::vec rad_j(&aux_bf[jr * g.nrad], g.nrad, false);
-
-		if ((from[0] % ss.size()) != (to[0] % ss.size())) return 0.0;
-
-	    for ( size_t k = 0; k < g.nrad ; k++) 
-			result += -Znuc / g.r[k] * rad_j[k] * rad_i[k] * g.gridw_r[k];
-
-	} else {
-
-		assert ( is == js );
-		for (const auto &i : alpha_str[is] ) {
-			size_t  ir = (i - i % ss.size()) / ss.size();
-			assert ( ir < naux );
-            arma::vec rad_i(&aux_bf[ir * g.nrad], g.nrad, false);
-
-			for ( size_t k = 0; k < g.nrad ; k++) 
-				result += -Znuc / g.r[k] * rad_i[k] * rad_i[k] * g.gridw_r[k];
-		}
-
-	}
-
-	return result;
-}
-
-#endif
-
-#if defined(POLYMER) || defined(AUX_POLYMER) || defined(NORMAL_POLYMER) || defined(NORMAL_POLYMER1) || defined(NORMAL_POLYMER2)
-double Hamiltonian::evaluate_nuc(size_t is, size_t js, int type) {
-
-	// Note that is and js as spin string indeces; We need to process them
-	// to obtain orbital index lists
-	//
-	
-    //arma::vec rad_i(&aux_bf[ir * g.nrad], g.nrad, false);
-	double result = 0.0;
-
-	auto &idet = (type == ALPHA ? alpha_str[is] : beta_str[is]);
-	auto &jdet = (type == ALPHA ? alpha_str[js] : beta_str[js]);
-
-	auto [p, from, to] = gen_excitation(jdet, idet);
-
-	assert(from.size() == to.size());
-
-	size_t ex_order = from.size();
-	size_t ngrid = g.nrad * g.nang;
-
-	if ( ex_order > 1) {
-
-		return 0.0;
-
-	} else if ( ex_order == 1) {
-        arma::vec orb_i(&paux_bf[to[0] * ngrid], ngrid, false);
-        arma::vec orb_j(&paux_bf[from[0] * ngrid], ngrid, false);
-
-	    for ( size_t k = 0; k < g.nrad ; k++) 
-			for ( size_t l = 0; l < g.nang; l++) 
-				result += (-Znuc / g.r[k] * orb_j[k * g.nang + l] * orb_i[k * g.nang + l] * g.gridw_r[k] *  g.gridw_a[l] * 4. * M_PI);
-
-		result *= p;
-		
-	} else {
-
-		assert ( is == js );
-		for (const auto &i : idet ) {
-			arma::vec orb_i(&paux_bf[i * ngrid], ngrid, false);
-			for ( size_t k = 0; k < g.nrad ; k++) 
-				for ( size_t l = 0; l < g.nang; l++) 
-					result += (-Znuc / g.r[k] * orb_i[k * g.nang + l] * orb_i[k * g.nang + l] * g.gridw_r[k] *  g.gridw_a[l] * 4. * M_PI);
-		}
-
-	}
-
-	return result;
-}
-#endif
-
-#ifdef POLYMER_WITH_ERI
-
-// Nuclear attraction term will be set to zero as it is included in the 
-// core Hamiltonian
-
-double Hamiltonian::evaluate_nuc(size_t is, size_t js, int type) {
-	return 0.0;
-}
-
-#endif
-
-
 double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 
 	//assert ( false );
 
+	auto [nalpha, nbeta] = bas.get_ab();
 
-	std::vector<size_t> &i_s = (type == ALPHA ? alpha_str[idet] : beta_str[idet]),
-		                &j_s = (type == ALPHA ? alpha_str[jdet] : beta_str[jdet]);
+	std::vector<size_t> &i_s = (type == ALPHA ? bas.a(idet) : bas.b(idet)),
+		                &j_s = (type == ALPHA ? bas.a(jdet) : bas.b(jdet));
 
-	// the rules here will be a bit more complicated compared to the kinetic operator case
-	// as alpha and beta strings can couple ( need to work out the formulas; similar to DET CI)
+	// the rules here will be more complicated compared to the core hamiltonian case
+	// as alpha and beta strings can be coupled 
 	// First, generate excitation vectors for the strings using gen_excitation
 	
 	auto [p, from, to] = gen_excitation(j_s, i_s); 
@@ -808,8 +585,7 @@ double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 
 	} else if ( ex_order == 2 ) {
 
-		//assert(false);
-		if (from.size() == 2) return p * (ce(to[0], from[0], to[1], from[1]) - ce(to[0], from[1], to[1], from[0])); // Mulliken's notation
+		if (from.size() == 2) return p * (ig.ce(to[0], from[0], to[1], from[1]) - ig.ce(to[0], from[1], to[1], from[0])); // Mulliken's notation
 
 	} else if (ex_order == 1) {
 
@@ -818,17 +594,19 @@ double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 		// is not generally true. Will be turned off for arbitrary 
 		// multielectron atoms
 
+		/*
 		if (j_s[0] == i_s[0] || j_s[1] == i_s[1] ) {
 			assert (p == 1);
 		} else {
 			assert (p == -1);
 		}
+		*/
 
 		double matrix_element = 0.0;
 
 		for (size_t ie = 0; ie < (type == ALPHA ? nalpha : nbeta) && j_s[ie] != from[0] && j_s[ie] != to[0]; ie++) {
-			//matrix_element += (ce(to[0], from[0], i_s[ie], j_s[ie]) - ce(to[0], j_s[ie], i_s[ie], from[0]));
-			matrix_element += (ce(to[0], from[0], j_s[ie], j_s[ie]) - ce(to[0], j_s[ie], j_s[ie], from[0])); 
+			// Note : j_s element can never coincide with a to element; also, from[0] can be included in summation - it cancels out
+			matrix_element += (ig.ce(to[0], from[0], j_s[ie], j_s[ie]) - ig.ce(to[0], j_s[ie], j_s[ie], from[0])); 
 		}
 
 		return p * matrix_element;
@@ -844,11 +622,9 @@ double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 
 		for ( size_t i = 0; i < (type == ALPHA ? nalpha : nbeta); i++ ) {
 			for (size_t j = 0; j < (type == ALPHA ? nalpha : nbeta); j++) { 
-				matrix_element += (ce(i_s[i], i_s[i], i_s[j], i_s[j]) - ce(i_s[i], i_s[j], i_s[j], i_s[i]));
+				matrix_element += (ig.ce(i_s[i], i_s[i], i_s[j], i_s[j]) - ig.ce(i_s[i], i_s[j], i_s[j], i_s[i]));
 			}
 		}
-
-
 
 		return 0.5 * matrix_element;
 
@@ -863,12 +639,14 @@ double Hamiltonian::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja, si
 
 	//assert (false);
 
-	auto &ia_s = alpha_str[ia], 
-		 &ib_s = beta_str[ib],
-		 &ja_s = alpha_str[ja],
-		 &jb_s = beta_str[jb];
+	auto [nalpha, nbeta] = bas.get_ab();
 
-	// the rules here will be a bit more complicated compared to the kinetic operator case
+	auto &ia_s = bas.a(ia), 
+		 &ib_s = bas.b(ib),
+		 &ja_s = bas.a(ja),
+		 &jb_s = bas.b(jb);
+
+	// the rules here will be a bit more complicated compared to the one-body operator case
 	// as alpha and beta strings can couple ( need to work out the formulas; similar to DET CI)
 	// First, generate excitation vectors for the strings using gen_excitation
 	
@@ -879,7 +657,7 @@ double Hamiltonian::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja, si
 
 	if ( ex_order == 2 && froma.size() == 1 && fromb.size() == 1) {
 
-		return pa * pb * ce(tob[0], fromb[0], toa[0], froma[0]);
+		return pa * pb * ig.ce(tob[0], fromb[0], toa[0], froma[0]);
 
 	} else if ( ex_order == 0) {
 
@@ -892,7 +670,7 @@ double Hamiltonian::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja, si
 
 		for (size_t i = 0 ; i < nalpha; i++ ) 
 			for (size_t j = 0; j < nbeta; j++ ) 
-				matrix_element += (ce(ia_s[i], ia_s[i], jb_s[j], jb_s[j]) + ce(ia_s[j], ia_s[j], jb_s[i], jb_s[i]));
+				matrix_element += (ig.ce(ia_s[i], ia_s[i], jb_s[j], jb_s[j]) + ig.ce(ia_s[j], ia_s[j], jb_s[i], jb_s[i]));
 
 		return 0.5 * matrix_element;
 
@@ -902,1452 +680,11 @@ double Hamiltonian::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja, si
 
 	}
 
-}
-
-#if defined(NORMAL) 
-double Hamiltonian::ce(size_t i, size_t j, size_t k, size_t l) {
-
-	// Assumes that the orbital indeces are arranged in Mulliken's order, that is
-	// i and j refer to the first electron whereas k and l refer to the second
-	// Extract radial point and angular orbital index
-	
-
-	auto [ir, iorb] = unpack_orb_index(i);
-	auto [jr, jorb] = unpack_orb_index(j);
-	auto [kr, korb] = unpack_orb_index(k);
-	auto [lr, lorb] = unpack_orb_index(l);
-
-	if ( kr != lr || ir != jr ) return 0;
-
-	return r12.eval_simple(g.r[ir], g.r[kr], ss.aorb[iorb], ss.aorb[jorb], ss.aorb[korb], ss.aorb[lorb]);
-
-}
-#endif
-
-#if defined(NORMAL_POLYMER2)
-double Hamiltonian::ce(size_t i, size_t j, size_t k, size_t l) {
-
-	// Assumes that the orbital indeces are arranged in Mulliken's order, that is
-	// i and j refer to the first electron whereas k and l refer to the second
-	// Extract radial point and angular orbital index
-	
-
-	auto [ir, iorb] = unpack_orb_index(i);
-	auto [jr, jorb] = unpack_orb_index(j);
-	auto [kr, korb] = unpack_orb_index(k);
-	auto [lr, lorb] = unpack_orb_index(l);
-
-	if ( kr != lr || ir != jr ) return 0;
-
-	LM mask[4];
-	mask[0] = ss.aorb[iorb];
-	mask[1] = ss.aorb[jorb]; 
-	mask[2] = ss.aorb[korb];
-	mask[3] = ss.aorb[lorb];
-
-	std::list<std::array<int, 4>> eri_idx {{0, 0, 0, 0}};
-	for (size_t pass = 0;  pass < 4; pass++) {
-		const auto current_size = eri_idx.size();
-		for (size_t e = 0; e < current_size; e++) {
-			const auto next_idx = eri_idx.front();
-			if (mask[pass].M != 0) {
-				std::array<int, 4> a1, a2;
-				std::copy(next_idx.begin(), next_idx.end(), a1.begin());
-				std::copy(next_idx.begin(), next_idx.end(), a2.begin());
-				a1[pass] = 1; // m > 0 for true spherical harmonic
-				a2[pass] = -1; // m < 0 for true spherical harmonic
-				eri_idx.push_back(a1);
-				eri_idx.push_back(a2);
-			} else {
-				eri_idx.push_back(next_idx);
-			}
-			eri_idx.pop_front(); // Very important
-		}
-	}
-
-	std::complex<double> i_ijkl (0.0, 0.0);
-
-	for (const auto &idx : eri_idx) {
-		std::arrray<LM, 4> oset;
-		std::complex< double > weight(1.0, 0.0);
-
-		// Index is an array of 4 ints, so :
-
-		for (size_t ipos = 0; ipos < 4; ipos++) {
-			auto o = mask[ipos];
-			o.M = abs(o.M) * idx[pos];
-			if (o.M != 0) {
-				if (mask[ipos].M > 0 && o.M > 0) weight *= (gsl_pow_int(-1, mask[ipos].M)/ sqrt(2.));
-				if (mask[ipos].M > 0 && o.M < 0) weight *= (1./sqrt(2.));
-				if (mask[ipos].M < 0 && o.M > 0) weight *= std::complex< double >(0.0, 1./sqrt(2.));
-				if (mask[ipos].M < 0 && o.M < 0) weight *= std::complex< double >(0.0, -gsl_pow_int(-1, mask[ipos].M)/ sqrt(2.));
-			}
-			oset[ipos] = o;
-		}
-
-		i_ijkl += weight * r12.eval_simple(g.r[ir], g.r[kr], oset[0], oset[1], oset[2], oset[3]);
-
-	}
-
-	//return r12.eval_simple(g.r[ir], g.r[kr], ss.aorb[iorb], ss.aorb[jorb], ss.aorb[korb], ss.aorb[lorb]);
-	return std::real(i_ijkl);
-
-}
-#endif
-
-
-#if defined(NORMAL_POLYMER1)
-
-double Hamiltonian::ce(size_t i, size_t j, size_t k, size_t l) {
-
-	// Independent way to evaluate the same "integral":
-	// 1. Inegrate out the first coordinate by expanding the (ij) density and applying Laplace formula
-	// 2. Pack the result of step 1 so it is represented on a grid
-	// 3. Contract the (kl) density with the function obtained after step 2 
-	
-	std::vector<double> den_ij(g.nrad * g.nang, 0.0), den_kl(g.nrad * g.nang, 0.0);
-
-	for (size_t r = 0; r < g.nrad; r++) {
-		for (size_t a = 0; a < g.nang; a++) {
-			den_ij[r * g.nang + a] = paux_bf[i * g.nrad * g.nang +  r * g.nang + a] * paux_bf[j * g.nrad * g.nang +  r * g.nang + a];
-			den_kl[r * g.nang + a] = paux_bf[k * g.nrad * g.nang +  r * g.nang + a] * paux_bf[l * g.nrad * g.nang +  r * g.nang + a];
-		}
-	}
-
-	//std::cout << "1 " << std::endl;
-
-	// Storage convention: grid representation of each radial function is contiguous in memory
-
-	std::vector< std::complex< double > > rden_ij((g.L_max + 1) * (g.L_max + 1) * g.nrad), pot_ij((g.L_max + 1) * (g.L_max + 1) * g.nrad);
-
-	for (int l = 0; l < g.L_max + 1; l++) {
-		for (int m = -l; m < l + 1; m++) {
-			int idx = l * l + l + m; // See the ShellSet definition for details
-			for (size_t r = 0; r < g.nrad ;r++ ) {
-				rden_ij[g.nrad * idx + r ] = std::complex< double > (0.0, 0.0);
-				for (size_t a = 0; a < g.nang; a++) {
-					auto [th, p] = g.thetaphi_ang[a];
-					auto [re, im] = Y(l, m, th, p);
-					// Note complex conjugation below
-					rden_ij[g.nrad * idx + r] += std::complex< double >(re, -im) * den_ij[r * g.nang + a] * 4. * M_PI * g.gridw_a[a];
-				}
-			}
-		}
-	}
-
-	//std::cout << "2 " << std::endl;
-
-	// Apply Laplace expansion to calculate the potential 
-	double rlarge, rsmall;
-	
-	for (int l =0 ; l < g.L_max + 1; l++) {
-		for (int m= -l; m < l + 1; m++) {
-			int idx = l * l + l + m; // See the ShellSet definition for details
-			for (size_t r = 0; r < g.nrad ;r++ ) {
-				pot_ij[idx * g.nrad + r] = std::complex< double >(0.0, 0.0);
-				for (size_t r1 = 0; r1 < g.nrad; r1++) {
-					rlarge = (r1 >= r ? g.r[r] : g.r[r1]);
-					rsmall = (r1 >= r ? g.r[r1] : g.r[r]);
-					pot_ij[idx * g.nrad + r] += 4. * M_PI / double(2*l + 1)  * gsl_pow_int(rsmall/rlarge, l) / rlarge * rden_ij[idx * g.nrad + r1] * g.gridw_r[r1];
-				}
-			}
-		}
-	}
-
-	//std::cout << "3 " << std::endl;
-
-	// Finally, contract with (kl) density; the latter will be constructed on the fly
-	std::complex < double > i_ijkl (0.0, 0.0);
-	for (int l =0 ; l < g.L_max + 1; l++) {
-		for (int m= -l; m < l + 1; m++) {
-			int idx = l * l + l + m; // See the ShellSet definition for details
-			for (size_t r =0; r < g.nrad; r++) {
-				for (size_t a = 0; a < g.nang; a++) {
-					auto [th, p] = g.thetaphi_ang[a];
-					auto [re, im] = Y(l, m, th, p);
-					i_ijkl += 4. * M_PI * g.gridw_r[r] * g.gridw_a[a] * std::complex< double >(re, im) * pot_ij[idx * g.nrad + r] * den_kl[r * g.nang + a];
-				}
-			}
-		}
-	}
-
-	//std::cout << "4 " << std::endl;
-
-	return std::real(i_ijkl);
+	// Check if other coupling terms would be needed as well, e.g. single spin-conserving excitations
 
 }
 
-#endif
 
-#ifdef NORMAL
 
-double Hamiltonian::ke(size_t i, size_t j) {
 
-	// Extract angular momentum and radial grid point number from is and 
-	// js; we will assume the following packing scheme for indeces: 1st g.p {angular orbitals} 
-	// 2nd g.p {angular orbitals } and so on such that the index of the radial grid point 
-	// changes slowly as opposed to the index of the angular orbital
-	// According to this convention:
-	
-	assert ( i < n1porb && j < n1porb );
-	
-	auto [ir, iorb] = unpack_orb_index(i);
-	auto [jr, jorb] = unpack_orb_index(j);
-
-	if (iorb != jorb) return 0.0;
-
-	assert (ir < g.nrad && jr < g.nrad);
-
-	int &L = ss.aorb[iorb].L;
-
-	std::vector<double> V_ir (g.nrad, 0.0), V_jr (g.nrad, 0.0);
-	std::vector<double> R_tmp(g.nrad, 0.0); // Temporary storage for transformed V - vectors
-	V_ir [ ir ] = 1. / sqrt(g.gridw_r[ir]);
-	V_jr [ jr ] = 1. / sqrt(g.gridw_r[jr]);
-
-	//lp.apply(V_jr.data(), R_tmp.data()); // R_tmp is supposed to contain laplacian at this point
-	lp.apply_fortran(V_jr.data(), R_tmp.data()); // R_tmp is supposed to contain laplacian at this point
-	V_jr[jr] *= -1.0 * double(L * (L + 1)) / gsl_pow_2(g.r[jr]); // Changing Vj!
-
-	cblas_daxpy(g.nrad, 1.0, R_tmp.data(), 1, V_jr.data(), 1);
-
-	double matrix_element = 0.0;
-
-	for (size_t i = 0; i < g.nrad; i++) 
-		matrix_element += V_ir [ i ] * g.gridw_r[ i ] * V_jr[ i ];
-
-
-	return -0.5 * matrix_element;
-
-}
-#endif
-
-#ifdef AUXBAS
-double Hamiltonian::ce(size_t i, size_t j, size_t k, size_t l) {
-
-	// Assumes that the orbitals are arranged in Mulliken's order, that is
-	// i and j refer to the first electron whereas k and l refer to the second
-	// Extract radial point and angular orbital index
-	
-
-	auto [ir, iorb] = unpack_orb_index(i);
-	auto [jr, jorb] = unpack_orb_index(j);
-	auto [kr, korb] = unpack_orb_index(k);
-	auto [lr, lorb] = unpack_orb_index(l);
-
-    double m = 0.0; // Matrix element
-
-    arma::vec rad_i(&aux_bf[ir * g.nrad], g.nrad, false);
-    arma::vec rad_j(&aux_bf[jr * g.nrad], g.nrad, false);
-    arma::vec rad_k(&aux_bf[kr * g.nrad], g.nrad, false);
-    arma::vec rad_l(&aux_bf[lr * g.nrad], g.nrad, false);
-
-		
-        /* Mute this code for now
-        for (size_t ii = 0; ii < g.nrad ; ii++) {
-            for (size_t jj = 0; jj < g.nrad ; jj++) {
-                double rad = rad_i[ii] * rad_j[ii] * rad_k[jj] * rad_l[jj];
-                m += r12.eval_simple(g.r[jj], g.r[ii], ss.aorb[iorb], ss.aorb[jorb], ss.aorb[korb], ss.aorb[lorb]) * g.gridw_r[ii] *  g.gridw_r[jj] *rad;
-            }
-        }
-		*/
-		
-		// Will use Poisson solver to generate integrals
-		// This is not practical for larger scale calculations; here I decided to try that for testing 
-		// purposes
-		
-		// 1. Generate density for the first orbital pair, say (i, j)
-
-		std::vector<double> den_ij_re(g.nrad * g.nang, 0.0), den_ij_im(g.nrad * g.nang, 0.0);
-		std::vector<double> pot_ij_re(g.nrad * g.nang, 0.0), pot_ij_im(g.nrad * g.nang, 0.0);
-
-		auto &oi = ss.aorb[iorb], &oj = ss.aorb[jorb], &ok = ss.aorb[korb], &ol = ss.aorb[lorb];
-
-		for ( size_t r = 0; r < g.nrad ; r++) {
-			double rpart = rad_i[r] * rad_j[r];
-			for (size_t a = 0; a < g.nang; a++) {
-				// extract (theta, phi)
-
-				auto [th, p] = g.thetaphi_ang[a];
-				//auto [rei, imi] = Y(oi.L, oi.M, th, p);
-				//auto [rej, imj] = Y(oj.L, oj.M, th, p);
-
-				auto [rei, imi] = Y(oi.L, abs(oi.M), th, p);
-				auto [rej, imj] = Y(oj.L, abs(oj.M), th, p);
-
-				double Yi = oi.M < 0 ? imi : rei, 
-					   Yj = oj.M < 0 ? imj : rej;
-
-				Yi *= sqrt(2.) * gsl_pow_int(-1, oi.M);
-				Yj *= sqrt(2.) * gsl_pow_int(-1, oj.M);
-
-				den_ij_re[r * g.nang + a] = rpart * Yi * Yj;
-				// No need to calculate imaginary part in this case
-
-				/*
-				// If complex sherical harmonics are replaces with real ones the result 
-				// should not change unless the core FCI code is incorrect
-				std::complex Yi (rei, imi), Yj (rej, imj);
-				den_ij_re[r * g.nang + a] = rpart * std::real(std::conj(Yi) * Yj);
-				den_ij_im[r * g.nang + a] = rpart * std::imag(std::conj(Yi) * Yj);
-				*/
-                /*
-				den_ij_re[r * g.nang + a] = rpart * (rei * rej + imi * imj);
-				den_ij_im[r * g.nang + a] = rpart * (rei * imj - imi * rej);
-				*/
-				
-			}
-		}
-
-		// 2. Use Poisson solver to calculate corresponding potenials
-		int iatom = 2, nrad = int ( g.nrad ), nang = int ( g.nang );
-
-		//initialize_poisson_(&nrad, &nang, &iatom);
-		construct_potential_(den_ij_re.data(), pot_ij_re.data());
-		//construct_potential_(den_ij_im.data(), pot_ij_im.data());
-		//finalize_poisson_();
-
-		// 3. Contract the potentials with the other orbital density; the latter won't be generated explicitly
-		// Imaginary part of the integral is saved for debugging purposes but is not needed for the Hamiltonian 
-		// generation 
-
-		double m_im = 0.0, m_re = 0.0;
-		double rthresh = 1.e-3, ithresh = 1.e-6; // This is a very loose threshold
-
-		for ( size_t r = 0; r < g.nrad ; r++) {
-			double rpart = rad_k[r] * rad_l[r];
-			for ( size_t a = 0; a < g.nang; a++ ) {
-				auto [th, p] = g.thetaphi_ang[a];
-
-				auto [rek, imk] = Y(ok.L, abs(ok.M), th, p);
-				auto [rel, iml] = Y(ol.L, abs(ol.M), th, p);
-
-				double Yk = ok.M < 0 ? imk : rek, 
-					   Yl = ol.M < 0 ? iml : rel;
-
-				Yk *= sqrt(2.) * gsl_pow_int(-1, ok.M);
-				Yl *= sqrt(2.) * gsl_pow_int(-1, ol.M);
-				m_re += 4. * M_PI * g.gridw_a[a] * g.gridw_r[r] * rpart * Yk * Yl * den_ij_re[r * g.nang + a];
-				/*
-				auto [rek, imk] = Y(ok.L, ok.M, th, p);
-				auto [rel, iml] = Y(ol.L, ol.M, th, p);
-
-				std::complex Yk (rek, imk), Yl(rel, iml);
-				std::complex cden_ij (den_ij_re[r * g.nang + a], den_ij_im[r * g.nang + a]);
-
-				auto tmp = std::conj(Yk) * Yl * rpart * cden_ij; // Convention is ((i*)j | (k*)l); Is that always correct?
-				m_re += 4. * M_PI * g.gridw_a[a] * g.gridw_r[r] * std::real(tmp);
-				m_im += 4. * M_PI * g.gridw_a[a] * g.gridw_r[r] * std::imag(tmp);
-				*/
-
-			
-			    // Why did I multiply by the radial part 2 times?	
-				//double tmp_re = rpart * ((rek * rel + imk * iml) * pot_ij_re[r * g.nang + a] - rpart * (rek * iml - imk * rel) * pot_ij_im[r * g.nang + a]);
-				//double tmp_im = rpart * ((rek * rel + imk * iml) * pot_ij_im[r * g.nang + a] + rpart * (rek * iml - imk * rel) * pot_ij_re[r * g.nang + a]);
-				// Fixed:
-				//double tmp_re = rpart * ((rek * rel + imk * iml) * pot_ij_re[r * g.nang + a] - (rek * iml - imk * rel) * pot_ij_im[r * g.nang + a]);
-				//double tmp_im = rpart * ((rek * rel + imk * iml) * pot_ij_im[r * g.nang + a] + (rek * iml - imk * rel) * pot_ij_re[r * g.nang + a]);
-
-				//m_re += 4. * M_PI * g.gridw_a[a] * g.gridw_r[r] * tmp_re;
-				//m_im += 4. * M_PI * g.gridw_a[a] * g.gridw_r[r] * tmp_im;
-
-			}
-		}
-		// Question: would I benefit from using real spherical harmonics?
-		if ( std::abs(m_im) >= ithresh) {
-			std::cout << " In Poisson solver: ";
-			std::cout << std::scientific << m_re << " + i * " <<  m_im << std::endl;
-		}
-		//assert( std::abs(m_im) < ithresh);
-		/*
-		if ( std::abs(m_im) >= ithresh || std::abs(m_re - m) >= rthresh ) {
-			// Just issue a warning and return m_re
-			std::cout << " Numerical results produced by Poisson solver disagree with Laplace expansion based calculation! " << std::endl;
-			std::cout << " In Poisson solver: ";
-			std::cout << std::scientific << m_re << " + i * " <<  m_im << std::endl;
-			std::cout << " Laplace: ";
-			std::cout << std::scientific << m << std::endl;
-			// Calculate some extra diagnostics 
-
-			double dot_ij = 0.0;
-
-			for ( size_t r = 0; r < g.nrad; r++) 
-				dot_ij += g.gridw_r[r] * rad_i[r] * rad_j[r];
-		    
-			std::cout << " Dot product for the first orbital pair " << ir << jr << " = " << std::scientific << dot_ij << std::endl;
-
-		}
-		*/
-	//	assert( std::abs(m_im) < ithresh && std::abs(m - m_re) < rthresh);
-    // Note: at this point m is returned; Poisson solver is used just for testing purposes
-	//return m ;
-	return m_re;
-
-}
-
-double Hamiltonian::ke(size_t i, size_t j) {
-
-	// Extract angular momentum and radial grid point number from is and 
-	// js; we will assume the following packing scheme for indeces: 1st g.p {angular orbitals} 
-	// 2nd g.p {angular orbitals } and so on such that the index of the radial grid point 
-	// changes slowly as opposed to the index of the angular orbital
-	// According to this convention:
-	
-	assert ( i < n1porb && j < n1porb );
-	
-
-	auto [ir, iorb] = unpack_orb_index(i);
-	auto [jr, jorb] = unpack_orb_index(j);
-
-	if (iorb != jorb) return 0.0;
-
-	int &L = ss.aorb[iorb].L;
-
-        double m = 0.0; // Matrix element
-
-        arma::vec rad_i(&aux_bf[ir * g.nrad], g.nrad, false);
-        arma::vec rad_j(&aux_bf[jr * g.nrad], g.nrad, false);
-
-	std::vector<double> R_tmp(g.nrad, 0.0); // Temporary storage for transformed V - vectors
-
-	lp.apply_fortran(&aux_bf[jr * g.nrad], R_tmp.data()); // R_tmp is supposed to contain laplacian at this point
-
-	double matrix_element = 0.0;
-
-	for (size_t k = 0; k < g.nrad; k++) {
-            double tmp = R_tmp[k] - double(L * (L + 1)) / gsl_pow_2(g.r[k]) * rad_j[k];
-            matrix_element += rad_i [ k ] * g.gridw_r[ k ] * tmp;
-        }
-
-
-	return -0.5 * matrix_element;
-
-}
-
-#endif
-
-#if defined(POLYMER) || defined(AUX_POLYMER) || defined(NORMAL_POLYMER)
-
-double Hamiltonian::ce(size_t i, size_t j, size_t k, size_t l) {
-
-	double m = 0.0; // Matrix element
-
-	size_t ngrid = g.nrad * g.nang;
-
-	std::vector<double> gridw(ngrid, 0.0);
-
-	for(size_t r= 0; r < g.nrad; r++) 
-		for (size_t a = 0; a < g.nang; a++) 
-			gridw[r * g.nang + a] = 4. * M_PI * g.gridw_r[r] * g.gridw_a[a];
-
-
-
-    arma::vec orb_i(&paux_bf[i * ngrid], ngrid, false);
-    arma::vec orb_j(&paux_bf[j * ngrid], ngrid, false);
-    arma::vec orb_k(&paux_bf[k * ngrid], ngrid, false);
-    arma::vec orb_l(&paux_bf[l * ngrid], ngrid, false);
-
-	double i_ijkl = eri_fortran_(&paux_bf[i * ngrid], &paux_bf[j * ngrid], &paux_bf[k * ngrid], &paux_bf[l * ngrid]); 
-
-	// Will use Poisson solver to generate integrals
-	// This is not practical for larger scale calculations; here I decided to try that for testing 
-	// purposes
-		
-	// 1. Generate density for the first orbital pair, say (i, j)
-
-	std::vector<double> den_ij(g.nrad * g.nang, 0.0);
-	std::vector<double> pot_ij(g.nrad * g.nang, 0.0);
-
-	for ( size_t g = 0; g < ngrid ; g++) 
-		den_ij[g] = orb_i[g] * orb_j[g];
-		
-
-	// 2. Use Poisson solver to calculate corresponding potenials
-
-	construct_potential_(den_ij.data(), pot_ij.data());
-/*
-	if ((i == 12) && (j == 12) && (k == 12) && (l == 12)) {
-		// Print potential (for 25 x 6 grid for debugging purposes
-		std::cout << " ==== " << std::endl;
-		std::cout << "Density for  13 13 " << std::endl;
-		for (size_t g = 0; g < ngrid; g++) 
-			printf("%28.20f\n", den_ij[g]);
-		std::cout << "Potential for 13 13 13 13 integral" << std::endl;
-		for (size_t g = 0; g < ngrid; g++) 
-			printf("%28.20f\n", pot_ij[g]);
-
-		//std::cout.flush();
-
-	}
-*/
-	// 3. Contract the potentials with the other orbital density;
-		
-
-	for ( size_t g = 0; g < ngrid ; g++) 
-		m += orb_k[g] * orb_l[g] * pot_ij[g] * gridw[g];
-
-	if (abs(m - i_ijkl) > 1e-8) {
-		std::cout << "Fortran " << std::setprecision(20) << i_ijkl << std::endl;
-		std::cout << "C++ " << std::setprecision(20) << m << std::endl;
-		assert (abs(m - i_ijkl) <= 1e-8); // Make sure that C++ and Fortran produce similar results!
-	}
-
-	return m ;
-
-}
-
-#endif
-
-#if defined(POLYMER) || defined(AUX_POLYMER) || defined(NORMAL_POLYMER) || defined(NORMAL_POLYMER1)
-
-double Hamiltonian::ke(size_t i, size_t j) {
-
-
-    size_t ngrid = g.nrad * g.nang;
-
-    double m_re = 0.0, m_im = 0.0; // Matrix element
-
-    arma::vec orb_i(&paux_bf[i * ngrid], ngrid, false);
-    arma::vec orb_j(&paux_bf[j * ngrid], ngrid, false);
-
-	std::vector<double> Ri_re(g.nrad * ss.size(), 0.0), 
-		                Ri_im(g.nrad * ss.size(), 0.0),
-                        Rj_re(g.nrad * ss.size(), 0.0),
-		                Rj_im(g.nrad * ss.size(), 0.0);
-
-	// Perform spherical harmonic expansion for both orbitals 
-	
-	for (size_t o = 0; o < ss.size(); o++) {
-		auto &L = ss.aorb[o].L, &M = ss.aorb[o].M;
-		for ( size_t r = 0; r < g.nrad ; r++ ) {
-			double di_re = 0.0, di_im = 0.0, dj_re = 0.0, dj_im = 0.0;
-			for ( size_t a = 0; a < g.nang ; a++ ) {
-
-				auto [th, p] = g.thetaphi_ang[a];
-				auto [re, im] = Y(L, M, th, p);
-
-				// Note: we are multiplying by the complex conjugate; orbitals are real
-
-				di_re += 4. * M_PI * g.gridw_a[a] * re * orb_i[r * g.nang + a];
-				di_im -= 4. * M_PI * g.gridw_a[a] * im * orb_i[r * g.nang + a];
-				dj_re += 4. * M_PI * g.gridw_a[a] * re * orb_j[r * g.nang + a];
-				dj_im -= 4. * M_PI * g.gridw_a[a] * im * orb_j[r * g.nang + a];
-
-			}
-
-			Ri_re[o * g.nrad + r] = di_re;
-			Ri_im[o * g.nrad + r] = di_im;
-			Rj_re[o * g.nrad + r] = dj_re;
-			Rj_im[o * g.nrad + r] = dj_im;
-		}
-	}
-
-	// Calculate the kinetic energy integral
-	
-	std::vector<double> lapl_re(g.nrad, 0.0), lapl_im(g.nrad, 0.0);
-	
-	for ( size_t o = 0; o < ss.size(); o++) {
-		std::fill(lapl_re.begin(), lapl_re.end(), 0.0);
-		std::fill(lapl_im.begin(), lapl_im.end(), 0.0);
-		int L = ss.aorb[o].L;
-		lp.apply_fortran(&Rj_re[o * g.nrad], lapl_re.data()); 
-		lp.apply_fortran(&Rj_im[o * g.nrad], lapl_im.data()); 
-		for ( size_t r  = 0; r < g.nrad; r++) {
-
-			double t_re = 0.0, t_im = 0.0;
-
-			t_re = lapl_re[r] - (double(L * (L + 1))/ gsl_pow_2(g.r[r]) * Rj_re[o * g.nrad + r]);
-			t_im = lapl_im[r] - (double(L * (L + 1))/ gsl_pow_2(g.r[r]) * Rj_im[o * g.nrad + r]);
-			m_re += (g.gridw_r[r] * (Ri_re[o * g.nrad + r] * t_re + Ri_im[o * g.nrad + r] * t_im));
-			m_im += (g.gridw_r[r] * (Ri_re[o * g.nrad + r] * t_im - Ri_im[o * g.nrad + r] * t_re));
-
-		}
-	}
-
-	assert ( std::abs(m_im) < 1e-8);
-	
-	return -0.5 * m_re;
-
-}
-
-
-#endif
-
-#ifdef POLYMER_WITH_ERI
-
-double Hamiltonian::ce(size_t i, size_t j, size_t k, size_t l) {
-
-	if (i > j) std::swap(i, j);
-	if (k > l) std::swap(k, l);
-	if (i > k || (i == k && l < j)) {
-		std::swap(i, k);
-		std::swap(j, l);
-	} 
-
-	assert (i <= j && k <= l && i <= k && j <= ( (i == k) ? l : porb));
-
-	int p1 = (porb - 1) * i + j - i * (i - 1) / 2,
-		p2 = (porb - 1) * k + l - k * (k - 1) / 2;
-
-	//int eri_index = (p1 + 1) * p1 / 2  + p2;
-	int eri_index = gsl_pow_3(porb) * i +gsl_pow_2(porb) * j + porb * k + l;
-
-	return eri[eri_index];
-
-}
-
-double Hamiltonian::ke(size_t i, size_t j) {
-
-	if (i > j) std::swap(i, j);
-	return hcore[i*porb + j];
-
-}
-
-#endif
-
-std::tuple<int, std::vector<size_t>, std::vector<size_t> > Hamiltonian::gen_excitation(std::vector<size_t> &i, std::vector<size_t> &j) {
-
-	// The first string is the starting one; the excitations will be generated from it
-
-	assert (i.size() == j.size());
-
-    int perm = 0; // Number of permutations required to align the orbital strings
-	std::vector<size_t> ex, from, to; 
-	size_t n = i.size();
-
-	if (i.size() == 0) {
-		std::cout << " I am here! " << std::endl;
-		// If arrays have zero sizes - 
-		// do nothing; 
-		return std::make_tuple(1, from, to);
-	}
-
-
-    for (size_t ie = 0; ie < n; ie++) {
-        auto  &o1 = i[ie];
-        if (!binary_search(j.begin(), j.end(), o1)) {
-            from.push_back(o1);
-            perm += n - ie - 1 + from.size(); 
-        }
-
-    }
-
-    for (size_t ie = 0; ie < n; ie++) {
-        auto &o2 = j[ie];
-        if (!binary_search(i.begin(), i.end(), o2)) {
-            to.push_back(o2);
-            perm += n - ie - 1 + to.size(); 
-        }
-
-    }
-
-    int parity = pow(-1, perm);
-
-    assert (from.size() == to.size());
-
-    return std::make_tuple(parity, from, to);
-
-}
-
-// some simple tests will be written here
-
-bool Hamiltonian::identical(std::vector< size_t > &first, std::vector< size_t > &second) {
-	if ( first.size() != second.size() ) {
-		return false;
-	} else {
-		for (size_t i = 0; i < first.size(); i++ ) 
-			if (first[i] != second[i]) return false;
-
-		return true;
-	}
-}
-
-// Test 1: Check if excitations are generated correctly
-
-void Hamiltonian::test1() {
-
-	// Check a few non-trivial examples of excitation generation
-	// Test 1.1
-	{
-		std::vector<size_t> s1 { 1, 3, 4, 8 },
-			                s2 { 1, 4, 5, 8 };
-
-		std::vector<size_t> from_ref { 3 }, to_ref { 5 };
-
-		auto [p , f, t ] = gen_excitation(s1, s2); // excitation from s1 to s2
-
-		assert( identical(from_ref, f) && identical(to_ref, t) );
-		assert( p = -1 );
-
-		//std::sort(f.begin(), f.end());
-		//std::sort(t.begin(), t.end());
-
-	}
-
-	// Test 1.2 : identical vectors should produce empty lists
-
-	{
-		std::vector<size_t> s1 { 1, 4, 5, 8 },
-			                s2 { 1, 4, 5, 8 };
-
-
-		auto [p , f, t ] = gen_excitation(s1, s2); // excitation from s1 to s2
-
-		assert( f.size() == 0 && t.size() == 0 );
-		assert( p = 1 );
-
-
-	}
-
-	// Test 1.3 : Example of the trivial high-order excitation
-	
-	{
-		std::vector<size_t> s1 { 1, 3, 4, 8 },
-			                s2 { 2, 5, 7, 9 };
-
-
-		auto [p , f, t ] = gen_excitation(s1, s2); // excitation from s1 to s2
-
-		assert( identical(s1, f) && identical(s2, t) );
-		assert( p = 1 );
-
-
-	}
-
-	// Test 1.4 : Example of the non-trivial high order excitation
-
-	{
-		std::vector<size_t> s1 { 1, 3, 4, 8 },
-			                s2 { 3, 4, 5, 9 };
-
-		std::vector<size_t> from_ref { 1, 8 }, to_ref { 5, 9 };
-
-		auto [p , f, t ] = gen_excitation(s1, s2); // excitation from s1 to s2
-		std::sort(f.begin(), f.end());
-		std::sort(t.begin(), t.end());
-
-		assert( identical(from_ref, f) && identical(to_ref, t) );
-
-	}
-
-	std::cout << "Excitations are generated correctly!"  << std::endl;
-}
-
-void Hamiltonian::test2() {
-	// For 25 x 6 basis calculate (13 13 | 13 13)
-#ifdef POLYMER
-
-	assert (g.nrad == 25 && g.nang == 6);
-
-	size_t ngrid = g.nrad * g.nang;
-
-	double i_ijkl = eri_fortran_(&paux_bf[12 * ngrid], &paux_bf[12 * ngrid], &paux_bf[12 * ngrid], &paux_bf[12 * ngrid]); 
-
-	std::cout << "Test 2 : (13, 13 |13, 13) integral for He atom on 25 X 6" << std::endl;
-	printf("I = %28.20f\n", i_ijkl);
-
-
-#endif
-	
-
-}
-
-void Hamiltonian::gen_aux_basis() {
-
-
-	//double lthresh = 1e-5; // Linear dependence threshold
-	double lthresh = 1e-6; // Linear dependence threshold
-	double orth_thresh = 1e-6; // Very mild orthogonalisation accuracy threshold
-
-	std::vector<double> aux(g.nrad * g.nrad, 0.0);
-	std::vector<double> bexp(g.nrad), bnorm(g.nrad);
-	std::copy(g.r.begin(), g.r.end(), bexp.begin());
-	double log2 = log(2.);
-	std::transform(bexp.begin(), bexp.end(), bexp.begin(), [&](double r) {return log2 / r;});
-
-	// Generate grid representations of the basis vectors
-	
-	for (size_t i = 0; i < g.nrad; i++) {
-		for (size_t j = 0; j < g.nrad; j++) {
-			aux[i * g.nrad + j] = exp(-bexp[i] * g.r[j]);
-		}
-	}
-
-	// Calculate the overlap matrix of the basis functions
-	// Will use armadillo classes instead of plain code
-	
-	arma::mat aux_bas(aux.data(), g.nrad, g.nrad, false); // create matrix without copying anything
-	arma::mat W = arma::diagmat(arma::vec(g.gridw_r)); // Weight matrix
-
-	arma::mat S = aux_bas.t() * W * aux_bas;
-	arma::vec es;
-	arma::mat ev;
-
-	bool status = arma::eig_sym(es, ev, S);
-	assert ( status );
-
-	std::cout << " Maximum eigenvalue of the overlap matrix is " << std::scientific << es.max() << std::endl;
-	std::cout << " Minimum eigenvalue of the overlap matrix is " << std::scientific << es.min() << std::endl;
-
-	//ev.print("Eigenvectors of the original overlap matrix: ");
-	//es.print("Eigenvalues : ");
-
-	arma::uvec ps = arma::sort_index(es, "ascend");
-
-	// Determine how many vectors should be discarded based on the
-	// current lthresh
-	
-	size_t discard = 0;
-
-	for (size_t k = 0; k < g.nrad; k++) {
-		if ( abs(es[ps[k]]) >= lthresh && es[ps[k]] > 0.0 ) {
-			discard = k;
-			break;
-		}
-	}
-
-	arma::vec es_sorted(g.nrad - discard);
-	arma::mat ev_sorted(g.nrad, g.nrad - discard);
-
-	for ( size_t i = discard; i < g.nrad; i++ ) {
-		es_sorted[i - discard] = es[ps[i]];
-		std::copy(ev.begin_col(ps[i]), ev.end_col(ps[i]), ev_sorted.begin_col(i - discard));
-	}
-
-	//ev_sorted.print(" Sorted eigenvectors : ");
-	//es_sorted.print(" Sorted eigenvalues ( the ones below the threshold are excluded ) : ");
-
-	arma::mat invsqrt = sqrt(arma::diagmat(1./es_sorted));
-	//invsqrt.print(" Inv s^1/2 :");
-
-	// Orthogonalize eigenvectors  (symmetric)
-	
-	arma::mat orth_aux_bas = aux_bas * ev_sorted * invsqrt;
-
-	// Normally this should be enough; however, for larger grid sizes due to the relatively 
-	// large eigenvalues of the overlap matrix - numerical errors tend to accumulate breaking
-	// orthogonality; For this reason the basis needs to be Gram-Schmidt re-orthogonalized 
-	// _after_ symmetric orthogonalisation; This is very important! Normally we would use QR 
-	// decomposition but since the dot product definition involves radial grid weights - the
-	// orthogonalization should be performed manually
-	
-	arma::mat q(orth_aux_bas.n_rows, orth_aux_bas.n_cols);
-
-	q.col(0) = orth_aux_bas.col(0) / sqrt(arma::as_scalar(orth_aux_bas.col(0).t() * W * orth_aux_bas.col(0)));
-	for (size_t ic = 1; ic < orth_aux_bas.n_cols; ic++) {
-		arma::vec u = orth_aux_bas.col(ic);
-		for (size_t prev = 0; prev < ic; prev++) 
-			u -= arma::as_scalar(q.col(prev).t() * W * orth_aux_bas.col(ic)) * q.col(prev);
-		q.col(ic) = u / sqrt(arma::as_scalar(u.t() * W * u));
-	}
-
-	orth_aux_bas = q; // Copy the new orthogonalized basis and work with it from now on
-
-	// Check orthogonlity with respect to weight matrix
-	
-	arma::mat diff = arma::abs(orth_aux_bas.t() * W * orth_aux_bas - arma::mat(g.nrad - discard, g.nrad - discard, arma::fill::eye)) ;
-
-	bool within_thresh = arma::all(arma::vectorise(diff) <= orth_thresh);
-
-	if (!within_thresh) {
-		std::cout << " Warning! Orthogonalisation error is large than the requested threshold! "  << std::endl;
-		std::cout << diff.max() << std::endl;
-	}
-
-	// If the grid is small -- print new overlap matrix for visual 
-	// inspection
-	
-	if ( g.nrad <= 25 ) {
-		arma::mat overlap = orth_aux_bas.t() * W * orth_aux_bas;
-		overlap.print(" Overlap matrix for the orthogonal basis: " );
-	}
-
-	// Flatten the array of the aux basis vectors to an std::vector;
-	// This can be used/exposed without the need of invoking armadillo
-	
-	naux = orth_aux_bas.n_cols;
-	aux_bf.resize(naux * g.nrad);
-
-	// Storage convention: Fortran
-	std::copy(orth_aux_bas.begin(), orth_aux_bas.end(), aux_bf.begin());
-
-	// Check
-	size_t col_idx = size_t(naux / 2);
-	arma::vec test_col(&aux_bf[col_idx * g.nrad], g.nrad, false);
-	double max_diff_col = arma::max(arma::abs(test_col - orth_aux_bas.col(col_idx)));
-	assert ( max_diff_col < 1e-12);
-
-}
-
-
-void Hamiltonian::fcidump() {
-	// This function should be used only if the
-	// calculation relies on auxiliary basis set;
-	// The function will dump all one- and two-particle
-	// integrals to the text file; 
-	// ERI-s are assumed to follow Mulliken's notation
-	// and are symmetric with respect to particle interchange
-	
-	fstream int_file;
-	int_file.open("QFCIDUMP", std::ios::out);
-	assert(int_file.is_open());
-
-	// Core Hamiltonian 
-	
-	arma::mat Hcore(naux, naux);
-
-	for (size_t i = 0; i < naux; i++) {
-		for (size_t j = 0; j < naux; j++) {
-
-			double h = 0.0;
-
-			auto [ir, iorb] = unpack_orb_index(i);
-			auto [jr, jorb] = unpack_orb_index(j);
-
-			if (iorb != jorb) {
-				Hcore(i, j) = 0.0;
-
-				// Write 0
-			} else {
-				int &L = ss.aorb[iorb].L;
-				arma::vec rad_i(&aux_bf[ir * g.nrad], g.nrad, false);
-				arma::vec rad_j(&aux_bf[jr * g.nrad], g.nrad, false);
-
-				std::vector<double> R_tmp(g.nrad, 0.0); // Temporary storage for transformed V - vectors
-				lp.apply_fortran(&aux_bf[jr * g.nrad], R_tmp.data()); // R_tmp is supposed to contain laplacian at this point
-
-				double matrix_element = 0.0;
-
-				for (size_t k = 0; k < g.nrad; k++) {
-					double tmp = -0.5 *( R_tmp[k] - double(L * (L + 1)) / gsl_pow_2(g.r[k]) * rad_j[k]) - Znuc/g.r[k] * rad_j[k];
-					matrix_element += rad_i [ k ] * g.gridw_r[ k ] * tmp;
-				}
-
-				Hcore(i, j) = matrix_element;
-
-				// Dump the matrix_element to the QFCIDUMP file
-			}
-		}
-	}
-
-	// Symmetrize matrix
-	
-	//Hcore = 0.5 * (Hcore + Hcore.t());
-
-	// In order to follow FCIDUMP format specification will calculate "orbital energies" by
-	// diagonalizing the core hamiltonian; I hope this is not used for the actual FCI calculations
-	// in HANDE QMC; Otherwise, I will have to run a full-fledged RHF
-
-    arma::mat aux_bas(aux_bf.data(), naux, naux, false);	
-	arma::vec e1p;
-	arma::mat orb1p;
-
-	bool status = arma::eig_sym(e1p, orb1p, Hcore);
-
-	// Transform auxiliary basis and Hcore 
-
-	// (Annoying) Two electron part 
-	
-	for ( size_t i = 0; i < naux; i++) {
-		for ( size_t j = 0; j < naux; j++) {
-			for ( size_t k = 0; k < i + 1; k++) {
-				for ( size_t l = 0; l < (k == i ? j + 1 : naux); l++) {
-					// Calculate (ij|kl) and dump it to the text file
-
-					auto [ir, iorb] = unpack_orb_index(i);
-					auto [jr, jorb] = unpack_orb_index(j);
-					auto [kr, korb] = unpack_orb_index(k);
-					auto [lr, lorb] = unpack_orb_index(l);
-
-					arma::vec rad_i(&aux_bf[ir * g.nrad], g.nrad, false);
-					arma::vec rad_j(&aux_bf[jr * g.nrad], g.nrad, false);
-					arma::vec rad_k(&aux_bf[kr * g.nrad], g.nrad, false);
-					arma::vec rad_l(&aux_bf[lr * g.nrad], g.nrad, false);
-
-					// Calculate densities and generate "potential" for the first orbital
-					// pair
-					std::vector<double> den_ij_re(g.nrad * g.nang, 0.0), den_ij_im(g.nrad * g.nang, 0.0);
-					std::vector<double> pot_ij_re(g.nrad * g.nang, 0.0), pot_ij_im(g.nrad * g.nang, 0.0);
-
-					auto &oi = ss.aorb[iorb], &oj = ss.aorb[jorb], &ok = ss.aorb[korb], &ol = ss.aorb[lorb];
-
-					for ( size_t r = 0; r < g.nrad ; r++) {
-						double rpart = rad_i[r] * rad_j[r];
-						for (size_t a = 0; a < g.nang; a++) {
-						// extract (theta, phi)
-
-							auto [th, p] = g.thetaphi_ang[a];
-							auto [rei, imi] = Y(oi.L, oi.M, th, p);
-							auto [rej, imj] = Y(oj.L, oj.M, th, p);
-
-							den_ij_re[r * g.nang + a] = rpart * (rei * rej + imi * imj);
-							den_ij_im[r * g.nang + a] = rpart * (rei * imj - imi * rej);
-				
-						}
-					}
-
-					// 2. Use Poisson solver to calculate corresponding potenials
-					int iatom = 2, nrad = int ( g.nrad ), nang = int ( g.nang );
-
-					initialize_poisson_(&nrad, &nang, &iatom);
-					construct_potential_(den_ij_re.data(), pot_ij_re.data());
-					construct_potential_(den_ij_im.data(), pot_ij_im.data());
-					finalize_poisson_();
-
-					// 3. Contract the potentials with the other orbital density; the latter won't be generated explicitly
-					// Imaginary part of the integral is saved for debugging purposes but is not needed for the Hamiltonian 
-					// generation 
-
-					double m_im = 0.0, m_re = 0.0;
-
-					for ( size_t r = 0; r < g.nrad ; r++) {
-						double rpart = rad_k[r] * rad_l[r];
-						for ( size_t a = 0; a < g.nang; a++ ) {
-							auto [th, p] = g.thetaphi_ang[a];
-							auto [rek, imk] = Y(ok.L, ok.M, th, p);
-							auto [rel, iml] = Y(ol.L, ol.M, th, p);
-				
-							double tmp_re = rpart * ((rek * rel + imk * iml) * pot_ij_re[r * g.nang + a] - rpart * (rek * iml - imk * rel) * pot_ij_im[r * g.nang + a]);
-							double tmp_im = rpart * ((rek * rel + imk * iml) * pot_ij_im[r * g.nang + a] + rpart * (rek * iml - imk * rel) * pot_ij_re[r * g.nang + a]);
-
-							m_re += 4. * M_PI * g.gridw_a[a] * g.gridw_r[r] * tmp_re;
-							m_im += 4. * M_PI * g.gridw_a[a] * g.gridw_r[r] * tmp_im;
-
-						}
-					}
-				}
-			}
-		}
-	}
-
-	int_file.close();
-
-}
-
-// The following function should only be invoked if
-// working with Polymer orbitals; otherwise - disable
-
-void Hamiltonian::pfcidump() {
-
-#if defined( POLYMER) || defined(AUX_POLYMER) || defined(NORMAL_POLYMER) || defined(NORMAL_POLYMER1)
-
-	int iatom = 2, nrad = int(g.nrad) , nang = int(g.nang);
-	initialize_poisson_(&nrad, &nang, &iatom);
-	
-	fstream int_file;
-	int_file.open("QFCIDUMP.POLY", std::ios::out);
-	assert(int_file.is_open());
-
-	size_t ngrid = g.nrad * g.nang;
-
-	for (size_t i = 0; i < porb; i++) {
-		for (size_t j = i; j < porb; j++) {
-
-			//double h = ke(i, j); 
-			//double h = ke(j, i); --- similar to POLYMER
-			double h = 0.5 *( ke(j, i) + ke(i, j) ); 
-			//double h = 0.0;
-
-            // The following code produces correct results
-			// ----
-			arma::vec orb_i(&paux_bf[i * ngrid], ngrid, false);
-			arma::vec orb_j(&paux_bf[j * ngrid], ngrid, false);
-
-			for ( size_t k = 0; k < g.nrad ; k++) 
-				for ( size_t l = 0; l < g.nang; l++) 
-					h += (-Znuc / g.r[k] * orb_j[k * g.nang + l] * orb_i[k * g.nang + l] * g.gridw_r[k] *  g.gridw_a[l] * 4. * M_PI);
-
-			// ----
-
-			int_file << std::scientific << std::setprecision(20) << std::setw(28) << h << "    " ;
-			int_file << i + 1 << "    " << j + 1 << "    " << 0 << "    " << 0 << std::endl;
-			
-		}
-	}
-
-	// (Annoying) Two electron part 
-	std::vector<int> pairs;
-
-	// populate pairs same way as in Polymer (even if that looks stupid)
-	
-	for (int i = 0; i < porb; i++) {
-		for (int j = i + 1; j < porb; j++) {
-			pairs.push_back(i * porb + j);
-		}
-	}
-
-	for (int j = 0; j < porb; j++) {
-		pairs.push_back(j * porb + j);
-	}
-	size_t numpairs = porb * (porb + 1) / 2;
-
-	assert (pairs.size() == numpairs);
-
-	for ( size_t p = 0; p < numpairs; p++) {
-		int ij = pairs[p];
-		int j = ij % porb;
-		int i = (ij - j) / porb;
-		for (size_t q = p; q < numpairs; q++) {
-			int kl = pairs[q];
-			int l = kl % porb;
-			int k = (kl - l) / porb;
-
-			double eri[8];
-			eri[0] =  ce(i, j, k, l); // Density is built based on the first pair of indeces; same as POLYMER
-			
-			eri[1] = ce(j, i, k, l);
-			eri[2] = ce(i, j, l, k);
-			eri[3] = ce(j, i, l, k);
-			eri[4] = ce(k, l, i, j);
-			eri[5] = ce(l, k, i, j);
-			eri[6] = ce(k, l, j, i);
-			eri[7] = ce(l, k, j, i);
-
-			double assym = 0.0;
-
-			for (size_t i = 0 ; i < 8; i++) 
-				for ( size_t j = 0; j < 8; j++) {
-					assym = std::max(assym, std::abs(eri[i] - eri[j]));
-				}
-
-			if ( assym > 1e-6 ) {
-				std::cout << " Detected significant symmetry breaking in ERI matrix " << std::endl;
-				std::cout << " Assym = " << assym << std::endl;
-			}
-			//assert ( assym <= 1e-2 );
-			
-
-			int_file << std::scientific << std::setprecision(20) << std::setw(28) << eri[0] << "    " ; // See the note above
-			//int_file << std::scientific << std::setprecision(20) << std::setw(28) << eri[4] << "    " ; 
-			int_file << i + 1 << "    " << j + 1 << "    " << k + 1 << "    " << l + 1 << std::endl;
-
-		}
-	}
-
-	int_file.close();
-
-	finalize_poisson_();
-
-#endif
-
-}
-
-
-void Hamiltonian::read_porbs(int mode) {
-
-	// Assumes that real values orbitals are 
-	// stored in the disk file called ORBITALS.DAT
-	// The fist three integers on the first line 
-	// of the orbital file denonte:
-	//
-	// number of orbitals
-	// maxngrid
-	// number of atoms ( currently the code can only work with a single atom
-	//
-	// The orbitals are stored in one column
-	
-
-	fstream orb_file;
-	orb_file.open("ORBITALS.DAT");
-	assert(orb_file.is_open());
-
-	int pmaxngrid, pnatom;
-	orb_file >> porb >> pmaxngrid >> pnatom;
-
-	// porb has been set above
-
-	if ( size_t(pmaxngrid) != g.nang * g.nrad || pnatom != 1 ) {
-		std::cout << " The grid used to generate the orbitals is inconsistent with the current grid! " << std::endl;
-		std::cout << " The orbitals from ORBITALS.DAT file will not be used! " << std::endl;
-	} else {
-		std::cout << porb << " orbitals will be read " << std::endl;
-		paux_bf.resize(porb * pmaxngrid);
-		if (mode == 0) {
-			for (size_t i = 0; i < size_t (porb * pmaxngrid); i++ ) 
-				orb_file >> paux_bf[i];
-		} else if (mode == 1) {
-			// use fortran subroutine
-			std::cout << "Extracting orbitals from the binary file " << std::endl;
-			read_orbitals_(paux_bf.data());
-		} else {
-			std::cout << " Unknown mode specifier in read_porbs! " << std::endl;
-			std::cout << " Orbital coefficient array will not be populated!" << std::endl;
-		}
-	}
-
-	orb_file.close();
-
-	// This will be added for testsin purposes only
-	// Just to make sure that the orbitals were read 
-	// correctly
-/*	
-	fstream orb_file_c;
-	orb_file_c.open("ORBITALS_C.DAT", std::ios::out);
-	if (orb_file_c.is_open()) {
-		orb_file_c << std::scientific << std::setprecision(20) << std::setw(28);
-		for (const auto &c : paux_bf )
-			orb_file_c << c << std::endl;
-	}
-	orb_file_c.close();
-*/
-
-	// Check orthogonality with respect to the grid used in the current code
-	// Assemble the weights (radial and angular combined)
-	
-	std::vector<double> wei(g.nrad * g.nang, 0.0);
-
-	for ( size_t r = 0; r < g.nrad; r++) 
-		for ( size_t a = 0; a < g.nang; a++) 
-			wei[r * g.nang + a] = 4. * M_PI * g.gridw_a[a] * g.gridw_r[r];
-
-	arma::mat W = arma::diagmat(arma::vec(wei));
-	arma::mat bas(paux_bf.data(), g.nrad * g.nang, porb, false);
-	arma::mat id = arma::eye(porb, porb);
-
-	arma::mat dp = arma::abs(bas.t() * W * bas - id);
-	std::cout << "Maximum deviation from orthogonality is " << std::scientific << dp.max() << std::endl;
-
-}
-
-void Hamiltonian::read_pfcidump() {
-
-	// Reads FCIDUMP from Polymer and creates arrays for Hcore and ERI
-
-	//std::map<int, double> eri, hcore;  // Those are declared as members of the Hamiltonian class
-	fstream poly_dump;
-	poly_dump.open("FCIDUMP");
-	//poly_dump.open("QFCIDUMP.POLY");
-
-	size_t nrecords =0 ;
-
-	if (!poly_dump.is_open())  {
-		std::cout << " FCIDUMP file produced by polymer was not found " << std::endl;
-		return;
-	}
-
-	std::cout << " Reading FCIDUMP generated by Polymer " << std::endl;
-	poly_dump >> porb;
-
-	std::cout << " Number of basis function in the Polymer fcidump file is " << porb << std::endl;
-
-	//while (!poly_dump.eof()) {
-	//while (nrecords < 4291 ) {
-	//while (nrecords < 951562 ) {
-	//while (nrecords < 2755446 ) {
-	int i, j, k, l;
-	double x;
-	poly_dump >> x >> i >> j >> k >> l;
-
-	do {
-		nrecords++;
-		std::cout << "Original: " << x << '\t' << i << '\t' << j  << '\t' << k << '\t' << l << std::endl;
-
-		// We care about two cases only:
-		// 1. All indeces are non-zero => eri
-		// 2. Two indeces are non-zero => core hamiltonian
-		// Everything else will be ignored
-		if ((i != 0) && (j != 0) && (k != 0) && (l != 0)) {
-			if (i > j) std::swap(i, j);
-			if (k > l) std::swap(k, l);
-			if (i > k || (i == k && l < j)) {
-				std::swap(i, k);
-				std::swap(j, l);
-			} 
-
-			//std::cout << " New index : " << i << '\t' << j << '\t' << k << '\t' << l << std::endl;
-			//
-			// Index pairs follow lexical ordering as checked by the following assert statement
-
-			assert (i <= j && k <= l && i <= k && j <= ( (i == k) ? l : porb));
-
-			i -= 1; j -= 1; k -= 1; l -= 1;
-
-		    std::cout << x << '\t' << i << '\t' << j  << '\t' << k << '\t' << l << std::endl;
-
-			int p1 = (porb - 1) * i + j - i * (i - 1) / 2,
-				p2 = (porb - 1) * k + l - k * (k - 1) / 2;
-
-			//int eri_counter = (p1 + 1) * p1 / 2  + p2;
-			int eri_counter = gsl_pow_3(porb) * i +gsl_pow_2(porb) * j + porb * k + l;
-			std::cout << " ERI counter " << eri_counter << std::endl;
-
-			assert(eri.find(eri_counter) == eri.end());
-
-			eri.insert(std::pair(eri_counter, x)); // CXX 17 rocks!
-
-		} else if ( (i != 0) && (j != 0) && (k == 0) && (l == 0)) {
-			if (i > j) std::swap(i, j);
-			i -= 1; 
-			j -= 1; 
-		    std::cout << x << '\t' << i << '\t' << j << std::endl;
-			assert (hcore.find(i * porb + j) == hcore.end());
-			hcore.insert(std::pair(i * porb + j, x));
-		}
-
-		poly_dump >> x >> i >> j >> k >> l;
-
-	} while (!poly_dump.eof()) ;
-
-	std::cout << "Finished reading FCIDUMP! " << nrecords << " have been processed." <<  std::endl; 
-
-	poly_dump.close();
-
-}
-
-void Hamiltonian::compare_fcidump() {
-
-	// This function should only be used after 
-	// Polymer orbitals have been extracted from a compatible orbital file!
-
-	std::map<int, double> fcidump_my, fcidump_poly; 
-
-	// When reading polymer's fcidump - discard everything except core hamiltonian and the eri-s
-	
-	fstream poly_dump1;
-	poly_dump1.open("FCIDUMP");
-
-
-	if (!poly_dump1.is_open())  {
-		std::cout << " FCIDUMP file produced by polymer was not found " << std::endl;
-		return;
-	}
-
-    int i, j, k, l;
-	double x;
-
-    std::cout << " porb (in compare_fcidump) " << porb << std::endl;
-	poly_dump1 >> x >> i >> j >> k >> l;
-
-	std::cout << " Reading FCIDUMP generated by Polymer " << std::endl;
-
-	do {
-
-		if ((i != 0) && (j != 0) && (k != 0) && (l != 0) ) {
-
-			assert ((i >= 1) && (j >= 1) && (k >= 1) && (l >= 1));
-			assert (i <= j);
-			assert (k <= l);
-
-			i--; j--; k--; l--;
-
-			int eri_counter = gsl_pow_3(porb) * i +gsl_pow_2(porb) * j + porb * k + l;
-			assert (fcidump_poly.find(eri_counter) == fcidump_poly.end());
-
-			fcidump_poly.insert(std::pair(eri_counter, x)); 
-		}
-
-	    poly_dump1 >> x >> i >> j >> k >> l;
-
-
-	} while (!poly_dump1.eof()); 
-
-	poly_dump1.close();
-	// DO the same shit for my code
-	
-	fstream my_dump;
-	my_dump.open("QFCIDUMP.POLY");
-
-	std::cout << " Reading fcidump created by my code " << std::endl;
-
-	if (!my_dump.is_open()) {
-		std::cout << " QFCIDUMP.POLY file was not found " << std::endl;
-		return;
-	}
-
-	my_dump >> x >> i >> j >> k >> l;
-
-	std::vector<int> eri_counters;
-
-	do {
-
-		if ((i != 0) && (j != 0) && (k !=0 ) && (l !=0)) {
-
-			//std::cout << i << '\t' << j << '\t' << k << '\t' << l << std::endl;
-
-			assert ((i >= 1) && (j >= 1) && (k >= 1) && (l >= 1));
-			assert (i <= j);
-			assert (k <= l);
-			i -= 1; j -= 1; k -= 1; l -= 1;
-
-			int eri_counter = gsl_pow_3(porb) * i +gsl_pow_2(porb) * j + porb * k + l;
-			eri_counters.push_back(eri_counter);
-
-			assert (fcidump_my.find(eri_counter) == fcidump_my.end());
-
-			if (eri_counter == 0) {
-				std::cout << "For eri_counter == 0" << x << std::endl;
-			    std::cout << i << '\t' << j << '\t' << k << '\t' << l << std::endl;
-			}
-
-			fcidump_my.insert(std::pair(eri_counter, x)); 
-			assert(fcidump_my[eri_counter] == x);
-		}
-			
-		my_dump >> x >> i >> j >> k >> l;
-
-
-	} while (!my_dump.eof());
-
-	my_dump.close();
-
-	// Perform comparison, but first check if we have the same number of elements in both maps
-	
-	assert(fcidump_my.size() == fcidump_poly.size());
-	double max_abs_diff = 0.0;
-	for ( auto &p : fcidump_my) {
-		int idx;
-		double x;
-		std::tie(idx, x) = p;
-		assert (std::find(eri_counters.begin(), eri_counters.end(), idx) != eri_counters.end());
-		if ( fcidump_poly.find(idx) == fcidump_poly.end() ) {
-			std::cout << " Comparison failed of the FCIDUMP files failed due to incompatible index spaces " << std::endl;
-			std::cout << " index (my intdump) " << idx << std::endl;
-		} else {
-			double x_ref = fcidump_poly[idx];
-			double old_max = max_abs_diff;
-			max_abs_diff = std::max( max_abs_diff , std::abs(x_ref - x));
-			if ( max_abs_diff > old_max) {
-				std::cout << " The error has increased (Diagnostic information) " << std::endl;
-				printf("%28.20f (Polymer)\n", x_ref);
-				printf("%28.20f (grid_qmc)\n", x);
-				std::cout << "Integral index is " << idx << std::endl;
-
-				// Check the symmetry of the eri
-
-
-			}
-		}
-	}
-
-	std::cout << " Comparison of the FCIDUMP files concluded successfully ! " << std::endl;
-	std::cout << " Maximum absolute difference between the integrals is " << std::scientific << max_abs_diff << std::endl;
-
-}
-
-void Hamiltonian::gen_eri_lookup(size_t numorb) {
-
-    for (size_t i = 0; i < numorb; i++) {
-        for (size_t j = i; j < numorb; j++) {
-            for (size_t k = 0; k < i + 1; k++) {
-                for (size_t l = k; l < (k == i ? j + 1 : numorb); l++) {
-                    size_t p1 = (numorb - 1) * i + j - i * (i - 1) / 2,
-                           p2 = (numorb - 1) * k + l - k * (k - 1) / 2;
-                    size_t eri_counter = (p1 + 1) * p1 / 2  + p2;
-
-					std::array<size_t, 4> composite_index {i, j, k, l};
-
-					if ( eri_lookup.find(eri_counter) == eri_lookup.end() ) {
-						eri_lookup.insert(std::pair(eri_counter, composite_index));
-					} else {
-						std::cout << "Error in gen_eri_lookup due to ambiguous mapping! " << std::endl;
-						assert(false);
-					}
-
-                }
-            }
-        }
-    }
-
-
-}
 

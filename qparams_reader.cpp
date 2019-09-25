@@ -72,9 +72,10 @@ void Params_reader::perform() {
 			exit(1);
 		}
 	    string key = line.substr(0, delimiter), value = line.substr(delimiter + 1, string::npos);
-            key = key.substr(0, key.find_last_not_of(" ") + 1);
-            if(params.find(key) != params.end()) params[key] = atoi(value.c_str()); 
-        }
+        key = key.substr(0, key.find_last_not_of(" ") + 1);
+        if(params.find(key) != params.end()) params[key] = atoi(value.c_str()); 
+		if(key.compare("fcidump") == 0) fcidump_file = value;
+    }
         printf("Done.\n");
         printf( " Summary of calculation parameters\n");
         printf( " ---------------------------------\n");

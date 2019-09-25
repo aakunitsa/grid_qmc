@@ -2,30 +2,95 @@
 #define QHAM_H
 
 #include "qorbitals.h"
+#include "qintegral.h"
 #include "qgrid.h"
 #include <map>
 #include <string>
 #include <vector>
 
+#define ALPHA 1
+#define BETA 0
 
-class Hamiltonian {
+// This is just a helper function used by DetBasis and Hamiltonian classes
 
-    public:
+inline std::tuple<int, std::vector<size_t>, std::vector<size_t> > gen_excitation(std::vector<size_t> &i, std::vector<size_t> &j) {
 
-        Hamiltonian(std::map<string, int> &p, ShellSet &orb);
+	// The first string is the starting one; the excitations will be generated from it
 
-		// Evaluate functions will later be used in FCIQMC routines; operate based on alpha/beta string indeces
+	assert (i.size() == j.size());
 
-		double evaluate_kinetic(size_t is1, size_t is2, int type); // The form of the kinetic energy operator does not depend on the particular string
-		double evaluate_nuc(size_t is1, size_t is2, int type); // Will probably be refactored in the future (makes sense to join with kinetic energy operator 
-		//double evaluate_coulomb(size_t i1, size_t i2, size_t i3, size_t i4);
-		double evaluate_coulomb_coupled(size_t i1, size_t i2, size_t i3, size_t i4);
-		double evaluate_coulomb(size_t i, size_t j, int type);
+    int perm = 0; // Number of permutations required to align the orbital strings
+	std::vector<size_t> ex, from, to; 
+	size_t n = i.size();
 
+	if (i.size() == 0) {
+		//std::cout << " I am here! " << std::endl;
+		// If arrays have zero sizes - 
+		// do nothing; 
+		return std::make_tuple(1, from, to);
+	}
+
+
+    for (size_t ie = 0; ie < n; ie++) {
+        auto  &o1 = i[ie];
+        if (!binary_search(j.begin(), j.end(), o1)) {
+            from.push_back(o1);
+            perm += n - ie - 1 + from.size(); 
+        }
+
+    }
+
+    for (size_t ie = 0; ie < n; ie++) {
+        auto &o2 = j[ie];
+        if (!binary_search(i.begin(), i.end(), o2)) {
+            to.push_back(o2);
+            perm += n - ie - 1 + to.size(); 
+        }
+
+    }
+
+    int parity = pow(-1, perm);
+
+    assert (from.size() == to.size());
+
+    return std::make_tuple(parity, from, to);
+
+}
+
+class Basis {
+	// Abstract base class that defines the
+	// interface of the subsequent Basis classes
+	// meant for FCI calculations as well as for projected estimators
+	protected:
+		int n1porb;
+		size_t nel, nalpha, nbeta;
+
+	public:
+		Basis(std::map<string, int> &p, int n1porb);
+		int get_n1porb() { return n1porb; }
+		std::tuple<size_t, size_t> get_ab() { return std::tie(nalpha, nbeta); }
+
+		// Pure virtual functions
+
+		virtual std::tuple<size_t, size_t> get_num_str() = 0;
+		virtual size_t get_basis_size() = 0;
+		virtual std::tuple<size_t, size_t> unpack_str_index(size_t idx) = 0;
+		virtual std::vector<size_t>& a(int i) = 0;
+		virtual std::vector<size_t>& b(int i) = 0;
+};
+
+class DetBasis : public Basis {
+
+	private:
+		std::vector< std::vector<size_t> > alpha_str, beta_str, clist; // connectivity list stores the connected strings indeces
         void build_basis();
-        vector<double> diag();
 
-        vector<double> diag_davidson(size_t nstates); // Uses Davidson-Liu algorithm to find nstates lowest energy states
+	public:
+		DetBasis(std::map<string, int> &p, int n1porb) : Basis(p, n1porb) {
+			build_basis();
+		}
+
+		std::tuple<size_t, size_t> get_num_str() { return std::make_tuple(alpha_str.size(), beta_str.size()); }
 
         size_t get_basis_size() { 
 			size_t nbf = 1;
@@ -36,74 +101,107 @@ class Hamiltonian {
 			return nbf;
 		}
 
-		void fcidump(); // Dumps the integrals in FCIQMC readable format
-		                // The radial parts of the orbitals will coincide with the aux basis radial parts from So's Mol Phys paper
-		void pfcidump(); // Same as fcidump but prints eri-s calculated with the orbitals extracted from Polymer
+		// Comment: it is necessary to expose this function so that FCIQMC_simple class
+		// could use it at excitation generation step as well as to 
+		// build determinant table lookup; For the latter it makes sense to 
+		// create two tables to save some space... 
+		
+		std::tuple<size_t, size_t> unpack_str_index(size_t idx) {  
 
-		void compare_fcidump();
+			// Structure of the string list is as follows:
+			// beta_1 alpha_1 ; beta_1 alpha_2 ; ..... beta_1; alpha_n
+			// and so on
+			//
+			// Returns: (alpha_str_idx, beta_str_idx)
 
-		std::map<int, std::array<size_t, 4> > eri_lookup; // represents (efficient) mapping between flat integer indeces and orbital indeces for the ERI matrix
-		void gen_eri_lookup(size_t num_orbitals); // Generates lookup table for ERI-s
-        
-		void read_porbs(int mode); // mode = 0 - read formatted text file ORBITALS.DAT; mode 1 - read binary file ORBITALS.DAT.BIN
-		void read_pfcidump();
-	    void gen_aux_basis(); // Putting this here temporarily
-		std::vector< std::vector<size_t> > alpha_str, beta_str;
+			size_t ialpha, ibeta;
+			ialpha = idx % ( alpha_str.size() );
+			ibeta = (idx - ialpha ) / alpha_str.size();
 
-		// Built-in testing framework
-		bool identical(std::vector<size_t> &s1, std::vector<size_t> &s2);
-		void test1(); // Runs the calculation of the ground state enery of the hydrogen atom 
-		              // If the parameters are set properly in the input file
-		void test2(); // Runs poisson solver; Should be used with -DPOLYMER at compile time
+			return std::make_tuple(ialpha, ibeta);
+
+		}
+
+		// Not sure if this function should be public or whether it is even needed...
+
+		int ex_order(int i, int j, int type) {
+
+			if ( type == ALPHA) {
+				auto [sign, from, to] = gen_excitation(alpha_str[i], alpha_str[j]);
+				return to.size();
+			} else if (type == BETA) {
+				auto [sign, from, to] = gen_excitation(beta_str[i], beta_str[j]);
+				return to.size();
+			} else {
+				return -1;
+			}
+
+		}
+
+		// The following functions define the mapping from the set of indeces to
+		// the set of orbital strings
+
+		std::vector<size_t>& a(int i) { return alpha_str[i]; }
+		std::vector<size_t>& b(int i) { return beta_str[i]; }
+
+};
+
+class TruncatedBasis : public Basis {
+
+	private:
+		std::vector<int> smap; // Defines a correspondence between the subspace basis and the full basis
+		size_t subspace_size;
+		DetBasis &full_bas;
+
+	public:
+		TruncatedBasis(std::map<string, int> &p, int n1porb, int subspace_size, std::vector<double> &h_diag, DetBasis &d);
+		std::tuple<size_t, size_t> get_num_str() { 
+			auto [na, nb] = full_bas.get_num_str();
+			return std::tie(na, nb); 
+		}
+        size_t get_basis_size() { return subspace_size; }
+		std::tuple<size_t, size_t> unpack_str_index(size_t idx) {  
+			assert ( idx < smap.size() );
+			return full_bas.unpack_str_index(smap[idx]);
+		}
+		std::vector<size_t>& a(int i) { return full_bas.a(i); }
+		std::vector<size_t>& b(int i) { return full_bas.b(i); }
+
+} ;
+
+class Hamiltonian {
+
+    public:
+
+        Hamiltonian(std::map<string, int> &p, Integral_factory &int_f, Basis &b);
+
+		// Evaluate functions will later be used in FCIQMC routines; operate based on alpha/beta string indeces
+
+		double matrix(size_t i, size_t j);
+
+        vector<double> build_diagonal(); // This is reserved for future use
+        vector<double> diag();
+
+        vector<double> diag_davidson(size_t nstates); // Uses Davidson-Liu algorithm to find nstates lowest energy states
+
+
 
 
     private:
 
-    ShellSet &ss;
-	Becke_grid g;
-	Laplacian lp;
-	Coulomb r12;
-	size_t nel, nalpha, nbeta, n1porb;
+		Integral_factory &ig; // Integral generator
+		Basis &bas;
 
-	double Znuc;
-
-
-    inline	std::tuple<size_t, size_t> unpack_str_index(size_t idx) {  
-        size_t ialpha, ibeta;
-	    ialpha = idx % ( alpha_str.size() );
-	    ibeta = (idx - ialpha ) / alpha_str.size();
-	    return std::make_tuple(ialpha, ibeta);
-	}
-
-	inline std::tuple<size_t, size_t> unpack_orb_index(size_t i) {
-
-		size_t iorb = i % ss.size(), ir = (i - iorb) / ss.size();
-		return std::make_tuple(ir, iorb);
-
-	}
-
-	//void gen_aux_basis();
-	size_t naux, porb;
-	std::vector<double> aux_bf; // Will be initialized inside gen_aux_basis
-	std::vector<double> paux_bf; // Stores the orbitals obtained from polymer; in contrast to aux_bf those are represented on the cartesian product of radial and angular grids
-
-	// Elementary integrals
-
-	double ke(size_t i, size_t j); // Evaluates one particle kinetic energy integral 
-	double ce(size_t i, size_t j, size_t k, size_t l); // Evaluates coulomb integral in chemists notation; i.e. (ij|kl)
-    std::tuple<int, std::vector<size_t>, std::vector<size_t> > gen_excitation(std::vector<size_t> &s_from, std::vector<size_t> &s_to);	
-
-	// Davidson solver parameters
+		// Davidson solver parameters
 		
-	std::vector< double > H_diag;
-	std::vector< size_t > iperm;
+		std::vector< double > H_diag;
+		std::vector< size_t > iperm;
 
-	// Storage for eri and hcore
-	std::map<int, double> hcore, eri;
+		double evaluate_core(size_t is1, size_t is2, int type); 
+		double evaluate_coulomb_coupled(size_t i1, size_t i2, size_t i3, size_t i4);
+		double evaluate_coulomb(size_t i, size_t j, int type);
 
 
 };
-
-
 
 #endif

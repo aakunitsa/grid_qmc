@@ -8,6 +8,7 @@
 #include "qhamiltonian.h"
 #include "qsystem.h"
 #include "qgrid.h"
+//#include "qfciqmc_simple.h"
 #include "qintegral.h"
 #include <iostream>
 #include <algorithm>
@@ -244,8 +245,52 @@ Timing ce_ref function
 Time 169.911 s
 */
 
-    g_int.fcidump();
+size_t n_states = 10;
 
+    if (q.params["run_type"] == 0) {
+		g_int.fcidump();
+	} else if (q.params["run_type"] == 1) {
+		// Diagonalize Hamiltonian and print energies of 
+		// the low lying states
+		std::vector<double> en;
+		if (q.params["fci_subspace"] <= 0) {
+			// Perform normal diagonalization in this
+			// case using full Hilbert space
+			DetBasis basis(q.params, g_int.n1porb);
+			printf("Constructing the Hamiltonian\n");
+			Hamiltonian h(q.params, g_int, basis);
+			printf("Performing full diagonalization\n");
+			auto e = h.diag();
+			//auto e = h.diag_davidson(n_states);
+
+			std::sort(e.begin(), e.end());
+			size_t saved_states = std::min(n_states, e.size());
+			en.resize(saved_states);
+			std::copy(e.begin(), std::next(e.begin(), saved_states), en.begin());
+		} else {
+			// Diagonalize in the subspace
+			DetBasis basis(q.params, g_int.n1porb);
+			Hamiltonian h_full(q.params, g_int, basis);
+			auto d = h_full.build_diagonal();
+			size_t subspace_size = std::min(basis.get_basis_size(), size_t(q.params["fci_subspace"]));
+			TruncatedBasis tr_basis(q.params, g_int.n1porb, subspace_size, d, basis);
+			Hamiltonian h_proj(q.params, g_int, tr_basis);
+			auto e = h_proj.diag();
+			std::sort(e.begin(), e.end());
+			en.resize(subspace_size);
+			std::copy(e.begin(), e.end(), en.begin());
+		}
+
+		std::cout << " Printing the first " << en.size() << " eigenvalues of the hamiltonian " << std::endl;
+		std::cout << std::scientific;
+		for (auto &energy : en) 
+			std::cout << energy << std::endl;
+
+	} else if (q.params["run_type"] == 2) {
+		//Hamiltonian h(q.params, g_int);
+		//FCIQMC_simple s(q.params, h);
+		//s.run();
+	}
 
     return 0;
 

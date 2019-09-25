@@ -16,9 +16,10 @@ class Params_reader {
         // Defaults
         map<string, int> params = {{"steps", 1000} , {"eq_steps", 250}, {"N", 1000}, {"Z" , 1},
                                    {"electrons", 2}, {"mult", 1}, {"opt_steps", 10}, {"rng", 32},
-                                   {"mult", 1}, {"nang", 6}, {"nrad", 5}, {"L_max", 0}, {"read_orb_file", 0}};
+                                   {"mult", 1}, {"nang", 6}, {"nrad", 5}, {"L_max", 0}, {"read_orb_file", 0},
+		                           {"run_type", 0}, {"steps_per_block", 5}, {"N_blocks", 1000}, {"fci_subspace", -1}};
 
-		string orbital_file; // Need to be exposed to other classes
+		string orbital_file, fcidump_file; // Need to be exposed to other classes
 
     public:
         Params_reader(int argc, char **argv);

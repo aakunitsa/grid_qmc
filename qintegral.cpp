@@ -15,7 +15,7 @@
 extern "C" void read_orbitals_(double *coeff);
 
 
-Integral_factory::Integral_factory(std::map<string, int> &p, ShellSet &orb) : g(p), lp(p), ss(orb) {};
+Integral_factory::Integral_factory(std::map<string, int> &p) : g(p), lp(p) {};
 
 bool Integral_factory::check_orthogonality(double orth_thresh = 1e-6) {
 
@@ -48,6 +48,7 @@ bool Integral_factory::check_orthogonality(double orth_thresh = 1e-6) {
 	return ortho;
 
 }
+
 
 void Integral_factory::fcidump() {
 
@@ -134,7 +135,7 @@ void Integral_factory::fcidump() {
 // Aux_integrals class
 
 
-Aux_integrals::Aux_integrals(Params_reader &pr, ShellSet &aorb) : Integral_factory(pr.params, aorb) {
+Aux_integrals::Aux_integrals(Params_reader &pr, ShellSet &aorb) : ss(aorb), Integral_factory(pr.params) {
 
 	// For convenience
 	auto p = pr.params;
@@ -552,10 +553,136 @@ Aux_integrals::~Aux_integrals() {
 
 }
 
+// Saved integrals class
+
+Saved_integrals::Saved_integrals(Params_reader &pr) : Integral_factory(pr.params) {
+
+	good = read_fcidump(pr.fcidump_file);
+	if (!good) {
+		std::cout << " WARNING: reading integrals from disk failed! " << std::endl;
+	}
+
+}
+
+
+bool Saved_integrals::read_fcidump(string &int_file) {
+
+	// Reads FCIDUMP from Polymer and creates arrays for Hcore and ERI
+	
+	int porb;
+
+	fstream poly_dump;
+	poly_dump.open(int_file.c_str());
+
+	size_t nrecords =0 ;
+
+	if (!poly_dump.is_open())  {
+		std::cout << " FCIDUMP file was not found " << std::endl;
+		return false;
+	}
+
+	std::cout << " Reading FCIDUMP " << std::endl;
+	poly_dump >> porb;
+	std::cout << " Number of basis function in the fcidump file is " << porb << std::endl;
+	if (porb > 55109 ) std::cout << " WARNING: the number of orbitals may be too large for the hashing scheme!" << std::endl;
+
+	n1porb = porb; // !!!!!!!!!!!!!!!!!!!!!!!!!!
+
+	int i, j, k, l;
+	double x;
+	poly_dump >> x >> i >> j >> k >> l;
+
+	do {
+		nrecords++;
+		//std::cout << "Original: " << x << '\t' << i << '\t' << j  << '\t' << k << '\t' << l << std::endl;
+
+		// We care about two cases only:
+		// 1. All indeces are non-zero => eri
+		// 2. Two indeces are non-zero => core hamiltonian
+		// Everything else will be ignored
+		if ((i != 0) && (j != 0) && (k != 0) && (l != 0)) {
+			if (i > j) std::swap(i, j);
+			if (k > l) std::swap(k, l);
+			if (i > k || (i == k && l < j)) {
+				std::swap(i, k);
+				std::swap(j, l);
+			} 
+
+			//std::cout << " New index : " << i << '\t' << j << '\t' << k << '\t' << l << std::endl;
+			//
+			// Index pairs follow lexical ordering as checked by the following assert statement
+
+			assert (i <= j && k <= l && i <= k && j <= ( (i == k) ? l : porb));
+
+			i -= 1; j -= 1; k -= 1; l -= 1;
+
+		    std::cout << x << '\t' << i << '\t' << j  << '\t' << k << '\t' << l << std::endl;
+
+			//int p1 = (porb - 1) * i + j - i * (i - 1) / 2,
+			//	p2 = (porb - 1) * k + l - k * (k - 1) / 2;
+			//int eri_counter = (p1 + 1) * p1 / 2  + p2;
+			
+			int eri_counter = gsl_pow_3(porb) * i +gsl_pow_2(porb) * j + porb * k + l;
+			//std::cout << " ERI counter " << eri_counter << std::endl;
+
+			assert(eri.find(eri_counter) == eri.end());
+
+			eri.insert(std::pair(eri_counter, x)); // CXX 17 rocks!
+
+		} else if ( (i != 0) && (j != 0) && (k == 0) && (l == 0)) {
+			if (i > j) std::swap(i, j);
+			i -= 1; 
+			j -= 1; 
+		    //std::cout << x << '\t' << i << '\t' << j << std::endl;
+			assert (hcore.find(i * porb + j) == hcore.end());
+			hcore.insert(std::pair(i * porb + j, x));
+		}
+
+		poly_dump >> x >> i >> j >> k >> l;
+
+	} while (!poly_dump.eof()) ;
+
+	std::cout << "Finished reading FCIDUMP! " << nrecords << " have been processed." <<  std::endl; 
+
+	poly_dump.close();
+
+	return true;
+
+}
+
+double Saved_integrals::hc(size_t i, size_t j) {
+
+	if (i > j) std::swap(i, j);
+	return hcore[i*n1porb + j];
+
+}
+
+
+double Saved_integrals::ce(size_t i, size_t j, size_t k, size_t l) {
+
+	if (i > j) std::swap(i, j);
+	if (k > l) std::swap(k, l);
+	if (i > k || (i == k && l < j)) {
+		std::swap(i, k);
+		std::swap(j, l);
+	} 
+
+	assert (i <= j && k <= l && i <= k && j <= ( (i == k) ? l : n1porb));
+
+	//int p1 = (porb - 1) * i + j - i * (i - 1) / 2,
+	//	p2 = (porb - 1) * k + l - k * (k - 1) / 2;
+	//int eri_index = (p1 + 1) * p1 / 2  + p2;
+	
+	int eri_index = gsl_pow_3(n1porb) * i +gsl_pow_2(n1porb) * j + n1porb * k + l;
+
+	return eri[eri_index];
+
+}
+
 // Grid_integrals class
 
 
-Grid_integrals::Grid_integrals(std::map<string, int> &p, ShellSet &aorb) : r12(p), Integral_factory(p, aorb) {
+Grid_integrals::Grid_integrals(std::map<string, int> &p, ShellSet &aorb) : ss(aorb), r12(p), Integral_factory(p) {
 
 	// Numerical thresholds
 	double orth_thresh = 1e-6; // Very mild orthogonalisation accuracy threshold
