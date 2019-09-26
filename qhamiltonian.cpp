@@ -179,7 +179,7 @@ TruncatedBasis::TruncatedBasis(std::map<string, int> &p, int n1porb, int subspac
 
 }
 
-Hamiltonian::Hamiltonian(std::map<string, int> &p, Integral_factory &int_f, Basis &nel_basis) : ig(int_f), bas(nel_basis) { }
+Hamiltonian::Hamiltonian(Integral_factory &int_f, Basis &nel_basis) : ig(int_f), bas(nel_basis) { }
 
 vector<double> Hamiltonian::build_diagonal() {
 
@@ -249,7 +249,7 @@ double Hamiltonian::matrix(size_t i, size_t j) {
 }
 
 
-vector<double> Hamiltonian::diag() {
+vector<double> Hamiltonian::diag(bool save_wfn) {
 
 	// When building matrix it is helpful to assess if it is diagonally dominant
 	// so that one could see if the Davidson solver will perform well in this
@@ -349,6 +349,12 @@ vector<double> Hamiltonian::diag() {
 
     for (int i = 0; i < n_bf; i++)
         eigvals.push_back(gsl_vector_get(energies, i));
+
+	if (save_wfn) {
+		gs_wfn.resize(n_bf);
+		for (size_t i = 0; i < n_bf; i++)
+			gs_wfn.push_back(gsl_matrix_get(eigvecs, i, 0));
+	}
 
     gsl_matrix_free(h_grid);
     gsl_matrix_free(eigvecs);

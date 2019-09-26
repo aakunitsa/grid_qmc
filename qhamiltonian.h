@@ -77,6 +77,7 @@ class Basis {
 		virtual std::tuple<size_t, size_t> unpack_str_index(size_t idx) = 0;
 		virtual std::vector<size_t>& a(int i) = 0;
 		virtual std::vector<size_t>& b(int i) = 0;
+		virtual std::vector<size_t>& get_neigh(int i) = 0;
 };
 
 class DetBasis : public Basis {
@@ -143,21 +144,31 @@ class DetBasis : public Basis {
 
 		std::vector<size_t>& a(int i) { return alpha_str[i]; }
 		std::vector<size_t>& b(int i) { return beta_str[i]; }
+		std::vector<size_t>& get_neigh(int i) {
+			assert (i < get_basis_size());
+			return clist[i];
+		}
 
 };
 
 class TruncatedBasis : public Basis {
 
+	// Expose connectivity list & smap in some way so that it can be used in the estimators!!!!
+
 	private:
-		std::vector<int> smap; // Defines a correspondence between the subspace basis and the full basis
+		std::vector<size_t> smap; // Defines a correspondence between the subspace basis and the full basis
 		size_t subspace_size;
 		DetBasis &full_bas;
 
 	public:
-		TruncatedBasis(std::map<string, int> &p, int n1porb, int subspace_size, std::vector<double> &h_diag, DetBasis &d);
+		TruncatedBasis(std::map<string, int> &p, int n1porb, int subspace_size, std::vector<double> &h_diag, DetBasis &d); 
+		// Constructor needs to be redesigned:
+		// 1. Remove suspace_size since it is contained in p
+		// 2. Remove h_diag since it is obtainable from d using information from (1)
+		// 3. Remove n1porb since it can be extracted from d as well -- Maybe should keep it for consistency reasons
 		std::tuple<size_t, size_t> get_num_str() { 
 			auto [na, nb] = full_bas.get_num_str();
-			return std::tie(na, nb); 
+			return std::make_tuple(na, nb); 
 		}
         size_t get_basis_size() { return subspace_size; }
 		std::tuple<size_t, size_t> unpack_str_index(size_t idx) {  
@@ -166,26 +177,35 @@ class TruncatedBasis : public Basis {
 		}
 		std::vector<size_t>& a(int i) { return full_bas.a(i); }
 		std::vector<size_t>& b(int i) { return full_bas.b(i); }
+		// This will be refactored later since the function will be used inside Hamiltonian and should
+		// therefore refer to the b.f. id-s inside the truncated basis
+		std::vector<size_t>& get_neigh(int i) {
+			assert (i < get_basis_size());
+			return full_bas.get_neigh(smap[i]); // THIS SHOULD BE REDESIGNED
+		}
 
-} ;
+		DetBasis& get_full_basis() { return full_bas; }
+		size_t get_id(int i) { return smap[i]; }
+
+};
 
 class Hamiltonian {
 
     public:
 
-        Hamiltonian(std::map<string, int> &p, Integral_factory &int_f, Basis &b);
+        //Hamiltonian(std::map<string, int> &p, Integral_factory &int_f, Basis &b);
+        Hamiltonian(Integral_factory &int_f, Basis &b);
 
 		// Evaluate functions will later be used in FCIQMC routines; operate based on alpha/beta string indeces
 
 		double matrix(size_t i, size_t j);
 
-        vector<double> build_diagonal(); // This is reserved for future use
-        vector<double> diag();
+		std::vector<double> build_diagonal(); // This is reserved for future use
+		std::vector<double> diag(bool save_wfn = false);
 
-        vector<double> diag_davidson(size_t nstates); // Uses Davidson-Liu algorithm to find nstates lowest energy states
+		std::vector<double> diag_davidson(size_t nstates); // Uses Davidson-Liu algorithm to find nstates lowest energy states
 
-
-
+		std::vector<double> get_wfn() { return gs_wfn; }
 
     private:
 
@@ -194,7 +214,7 @@ class Hamiltonian {
 
 		// Davidson solver parameters
 		
-		std::vector< double > H_diag;
+		std::vector< double > H_diag, gs_wfn; // ground state wave function
 		std::vector< size_t > iperm;
 
 		double evaluate_core(size_t is1, size_t is2, int type); 

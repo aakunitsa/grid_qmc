@@ -15,6 +15,8 @@
 #include <complex>
 #include <chrono>
 
+#include "qestimator.h"
+
 
 int main(int argc, char **argv) {
 
@@ -258,7 +260,7 @@ size_t n_states = 10;
 			// case using full Hilbert space
 			DetBasis basis(q.params, g_int.n1porb);
 			printf("Constructing the Hamiltonian\n");
-			Hamiltonian h(q.params, g_int, basis);
+			Hamiltonian h(g_int, basis);
 			printf("Performing full diagonalization\n");
 			auto e = h.diag();
 			//auto e = h.diag_davidson(n_states);
@@ -270,11 +272,11 @@ size_t n_states = 10;
 		} else {
 			// Diagonalize in the subspace
 			DetBasis basis(q.params, g_int.n1porb);
-			Hamiltonian h_full(q.params, g_int, basis);
+			Hamiltonian h_full(g_int, basis);
 			auto d = h_full.build_diagonal();
 			size_t subspace_size = std::min(basis.get_basis_size(), size_t(q.params["fci_subspace"]));
 			TruncatedBasis tr_basis(q.params, g_int.n1porb, subspace_size, d, basis);
-			Hamiltonian h_proj(q.params, g_int, tr_basis);
+			Hamiltonian h_proj(g_int, tr_basis);
 			auto e = h_proj.diag();
 			std::sort(e.begin(), e.end());
 			en.resize(subspace_size);
@@ -290,6 +292,25 @@ size_t n_states = 10;
 		//Hamiltonian h(q.params, g_int);
 		//FCIQMC_simple s(q.params, h);
 		//s.run();
+	} else if (q.params["run_type"] == 3) {
+		// This is a test for the projected estimator
+		DetBasis basis(q.params, g_int.n1porb);
+		Hamiltonian h_full(g_int, basis);
+		auto e_full = h_full.diag(true);
+		auto psi0_full = h_full.get_wfn();
+		// Construct a truncated basis
+		auto d = h_full.build_diagonal();
+		size_t subspace_size = std::min(basis.get_basis_size(), size_t(q.params["fci_subspace"]));
+		std::cout << "Subspace size is " << subspace_size << std::endl;
+		TruncatedBasis tr_basis(q.params, g_int.n1porb, subspace_size, d, basis);
+		std::cout << "Constructing projected estimator " << std::endl;
+		ProjEstimator proj_en(g_int, tr_basis);
+		// Test eval for the full wave function
+		auto [ e0 , e1 ] = proj_en.eval(psi0_full);
+		double overlap_thresh = 1e-10;
+		assert (abs(e1) >= overlap_thresh); 
+		printf("Ground state energy from the full H diagonalization: %13.6f\n", e_full[0]);
+		printf("Ground state energy from the projected esitmator: %13.6f\n", e0 / e1);
 	}
 
     return 0;
