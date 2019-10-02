@@ -68,7 +68,7 @@ class Basis {
 	public:
 		Basis(std::map<string, int> &p, int n1porb);
 		int get_n1porb() { return n1porb; }
-		std::tuple<size_t, size_t> get_ab() { return std::tie(nalpha, nbeta); }
+		std::tuple<size_t, size_t> get_ab() { return std::make_tuple(nalpha, nbeta); }
 
 		// Pure virtual functions
 
@@ -206,6 +206,7 @@ class Hamiltonian {
 		std::vector<double> diag_davidson(size_t nstates); // Uses Davidson-Liu algorithm to find nstates lowest energy states
 
 		std::vector<double> get_wfn() { return gs_wfn; }
+		double check_wfn(); // This function should only be called if the wave function has been saved during diagonalization step
 
     private:
 

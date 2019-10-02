@@ -277,9 +277,10 @@ size_t n_states = 10;
 			size_t subspace_size = std::min(basis.get_basis_size(), size_t(q.params["fci_subspace"]));
 			TruncatedBasis tr_basis(q.params, g_int.n1porb, subspace_size, d, basis);
 			Hamiltonian h_proj(g_int, tr_basis);
-			auto e = h_proj.diag();
+			//Hamiltonian h_proj(g_int, tr_basis.get_full_basis()); // This works fine
+			auto e = h_proj.diag(true);
 			std::sort(e.begin(), e.end());
-			en.resize(subspace_size);
+			en.resize(e.size());
 			std::copy(e.begin(), e.end(), en.begin());
 		}
 
@@ -298,6 +299,11 @@ size_t n_states = 10;
 		Hamiltonian h_full(g_int, basis);
 		auto e_full = h_full.diag(true);
 		auto psi0_full = h_full.get_wfn();
+		//double e_check = h_full.check_wfn();
+		//std::cout << "Checking the wave function... " << std::endl;
+		//std::cout << e_check << std::endl;
+		//std::cout << e_full[0] << std::endl;
+		//std::cout << "Done!" << std::endl;
 		// Construct a truncated basis
 		auto d = h_full.build_diagonal();
 		size_t subspace_size = std::min(basis.get_basis_size(), size_t(q.params["fci_subspace"]));
@@ -308,6 +314,7 @@ size_t n_states = 10;
 		// Test eval for the full wave function
 		auto [ e0 , e1 ] = proj_en.eval(psi0_full);
 		double overlap_thresh = 1e-10;
+		printf("E0 = %13.6f E1 = %13.6f \n", e0, e1);
 		assert (abs(e1) >= overlap_thresh); 
 		printf("Ground state energy from the full H diagonalization: %13.6f\n", e_full[0]);
 		printf("Ground state energy from the projected esitmator: %13.6f\n", e0 / e1);

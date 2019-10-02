@@ -157,12 +157,26 @@ void DetBasis::build_basis() {
 			if (j == i) continue;
 			auto [ja, jb] = unpack_str_index(j);
 			auto alpha_order = ex_order(ia, ja, ALPHA), beta_order = (nbeta > 0 ? ex_order(ib, jb, BETA) : 0);
+			//assert (alpha_order > 0 && alpha_order < 3);
+			//assert (beta_order == 0);
 			if ((alpha_order == 2 && beta_order == 0) || (alpha_order == 0 && beta_order == 2) || 
-				(alpha_order == 1 && beta_order == 1)) neigh_list.push_back(j);
+				(alpha_order == 1 && beta_order == 1) || (alpha_order == 1 && beta_order == 0) || 
+				(alpha_order == 0 && beta_order == 1)) neigh_list.push_back(j);
 		}
 		std::sort(neigh_list.begin(), neigh_list.end());
 		clist.push_back(neigh_list);
 	}
+
+#ifdef DEBUG_BAS
+	// Print connectivity lists for the basis
+	for (size_t i = 0 ; i < bas_size; i++) {
+		std::cout << i << " : ";
+		for (const auto &j : clist[i]) 
+			std::cout << j << " ";
+		std::cout << std::endl;
+	}
+
+#endif
 	
 }
 
@@ -171,7 +185,7 @@ TruncatedBasis::TruncatedBasis(std::map<string, int> &p, int n1porb, int subspac
 
 	subspace_size = subspace_size_;
 	smap.resize(subspace_size);
-	assert (full_bas.get_basis_size() == h_diag.size()); // We require that the diagonal is consistent with full_bas
+	assert (full_bas.get_basis_size() == h_diag.size() && (subspace_size <= full_bas.get_basis_size())); // We require that the diagonal is consistent with full_bas
 	// Sort the diagonal and extract a set of subspace_size lowest energy determinants
 	std::vector<size_t> iperm(full_bas.get_basis_size());
 	gsl_sort_index(iperm.data(), h_diag.data(), 1, get_basis_size());
@@ -179,9 +193,25 @@ TruncatedBasis::TruncatedBasis(std::map<string, int> &p, int n1porb, int subspac
 
 }
 
-Hamiltonian::Hamiltonian(Integral_factory &int_f, Basis &nel_basis) : ig(int_f), bas(nel_basis) { }
+Hamiltonian::Hamiltonian(Integral_factory &int_f, Basis &nel_basis) : ig(int_f), bas(nel_basis) { 
 
-vector<double> Hamiltonian::build_diagonal() {
+	// Perform simple checks
+	auto basis_size= bas.get_basis_size();
+	assert (basis_size > 0);
+	auto [num_alpha, num_beta] = bas.get_num_str();
+	auto [num_alpha_e, num_beta_e] = bas.get_ab(); 
+	assert (num_alpha > 0);
+	/*
+	// This is not the case for truncated basis in general
+	if (num_beta_e != 0) {
+		assert (num_beta > 0 && (num_beta * num_alpha == basis_size));
+	} else {
+		assert (num_alpha == basis_size);
+	}
+	*/
+}
+
+std::vector<double> Hamiltonian::build_diagonal() {
 
 	std::vector<double> tmp_H_diag(bas.get_basis_size(), 0.0);
 	auto [ nalpha, nbeta ] = bas.get_ab(); // number of alpha and beta electrons
@@ -249,7 +279,7 @@ double Hamiltonian::matrix(size_t i, size_t j) {
 }
 
 
-vector<double> Hamiltonian::diag(bool save_wfn) {
+std::vector<double> Hamiltonian::diag(bool save_wfn) {
 
 	// When building matrix it is helpful to assess if it is diagonally dominant
 	// so that one could see if the Davidson solver will perform well in this
@@ -335,7 +365,6 @@ vector<double> Hamiltonian::diag(bool save_wfn) {
 
     gsl_eigen_symmv_workspace *w  = gsl_eigen_symmv_alloc(n_bf);
     gsl_eigen_symmv(h_grid, energies, eigvecs, w);
-    gsl_eigen_symmv_free(w);
 
     gsl_eigen_symmv_sort (energies, eigvecs, GSL_EIGEN_SORT_VAL_ASC);
 
@@ -353,14 +382,38 @@ vector<double> Hamiltonian::diag(bool save_wfn) {
 	if (save_wfn) {
 		gs_wfn.resize(n_bf);
 		for (size_t i = 0; i < n_bf; i++)
-			gs_wfn.push_back(gsl_matrix_get(eigvecs, i, 0));
+			//gs_wfn.push_back(gsl_matrix_get(eigvecs, i, 0));
+			gs_wfn[i] = gsl_matrix_get(eigvecs, i, 0);
 	}
 
+    gsl_eigen_symmv_free(w);
     gsl_matrix_free(h_grid);
     gsl_matrix_free(eigvecs);
     gsl_vector_free(energies);
 
     return eigvals;
+}
+
+double Hamiltonian::check_wfn() {
+	if (gs_wfn.size() == 0) return 0.0;
+	// 1. Check orthogonality
+	double norm2 = 0.0;
+	for (const auto &c : gs_wfn) norm2 += (c * c);
+	printf("Norm of the ground state wave function is %13.6f \n", sqrt(norm2));
+
+	// 2. Calculate the Reileigh quotient
+	assert (gs_wfn.size() == bas.get_basis_size());
+	auto n_bf = bas.get_basis_size();
+	double e = 0.0;
+	for (size_t i = 0; i < n_bf; i++) {
+		for (size_t j =0 ; j < n_bf; j++) {
+			e += gs_wfn[i] * gs_wfn[j] * matrix(i, j);
+		}
+	}
+	printf("Energy of the ground state via Reileigh quotient %13.6f \n", e/norm2);
+
+	return e/norm2;
+
 }
 
 
