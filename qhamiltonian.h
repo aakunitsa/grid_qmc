@@ -158,10 +158,12 @@ class TruncatedBasis : public Basis {
 	private:
 		std::vector<size_t> smap; // Defines a correspondence between the subspace basis and the full basis
 		size_t subspace_size;
-		DetBasis &full_bas;
+		//DetBasis &full_bas;
+		Basis &full_bas;
 
 	public:
-		TruncatedBasis(std::map<string, int> &p, int n1porb, int subspace_size, std::vector<double> &h_diag, DetBasis &d); 
+		//TruncatedBasis(std::map<string, int> &p, int n1porb, int subspace_size, std::vector<double> &h_diag, DetBasis &d); 
+		TruncatedBasis(std::map<string, int> &p, int n1porb, int subspace_size, std::vector<double> &h_diag, Basis &d); 
 		// Constructor needs to be redesigned:
 		// 1. Remove suspace_size since it is contained in p
 		// 2. Remove h_diag since it is obtainable from d using information from (1)
@@ -184,7 +186,8 @@ class TruncatedBasis : public Basis {
 			return full_bas.get_neigh(smap[i]); // THIS SHOULD BE REDESIGNED
 		}
 
-		DetBasis& get_full_basis() { return full_bas; }
+		//DetBasis& get_full_basis() { return full_bas; }
+		Basis& get_full_basis() { return full_bas; }
 		size_t get_id(int i) { return smap[i]; }
 
 };
@@ -207,6 +210,8 @@ class Hamiltonian {
 
 		std::vector<double> get_wfn() { return gs_wfn; }
 		double check_wfn(); // This function should only be called if the wave function has been saved during diagonalization step
+
+		Integral_factory & get_integral_factory() { return ig; }
 
     private:
 

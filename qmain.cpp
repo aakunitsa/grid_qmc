@@ -8,7 +8,7 @@
 #include "qhamiltonian.h"
 #include "qsystem.h"
 #include "qgrid.h"
-//#include "qfciqmc_simple.h"
+#include "qfciqmc_simple.h"
 #include "qintegral.h"
 #include <iostream>
 #include <algorithm>
@@ -275,6 +275,7 @@ size_t n_states = 10;
 			Hamiltonian h_full(g_int, basis);
 			auto d = h_full.build_diagonal();
 			size_t subspace_size = std::min(basis.get_basis_size(), size_t(q.params["fci_subspace"]));
+			if (subspace_size <= 0) subspace_size = 1; // Probably this would be a terrible estimator but can work
 			TruncatedBasis tr_basis(q.params, g_int.n1porb, subspace_size, d, basis);
 			Hamiltonian h_proj(g_int, tr_basis);
 			//Hamiltonian h_proj(g_int, tr_basis.get_full_basis()); // This works fine
@@ -290,9 +291,14 @@ size_t n_states = 10;
 			std::cout << energy << std::endl;
 
 	} else if (q.params["run_type"] == 2) {
-		//Hamiltonian h(q.params, g_int);
-		//FCIQMC_simple s(q.params, h);
-		//s.run();
+		DetBasis basis(q.params, g_int.n1porb);
+		Hamiltonian h(g_int, basis);
+		auto d = h.build_diagonal();
+		size_t subspace_size = std::min(basis.get_basis_size(), size_t(q.params["fciqmc_projection_subspace"]));
+		TruncatedBasis tr_basis(q.params, g_int.n1porb, subspace_size, d, basis);
+		ProjEstimator proj_en(g_int, tr_basis);
+		FCIQMC_simple s(q.params, h, basis, proj_en);
+		s.run();
 	} else if (q.params["run_type"] == 3) {
 		// This is a test for the projected estimator
 		DetBasis basis(q.params, g_int.n1porb);

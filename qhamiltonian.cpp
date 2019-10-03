@@ -180,7 +180,8 @@ void DetBasis::build_basis() {
 	
 }
 
-TruncatedBasis::TruncatedBasis(std::map<string, int> &p, int n1porb, int subspace_size_, std::vector<double> &h_diag, DetBasis &d) : 
+//TruncatedBasis::TruncatedBasis(std::map<string, int> &p, int n1porb, int subspace_size_, std::vector<double> &h_diag, DetBasis &d) : 
+TruncatedBasis::TruncatedBasis(std::map<string, int> &p, int n1porb, int subspace_size_, std::vector<double> &h_diag, Basis &d) : 
 				Basis(p, n1porb), full_bas(d) {
 
 	subspace_size = subspace_size_;
