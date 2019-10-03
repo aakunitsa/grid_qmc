@@ -317,7 +317,18 @@ size_t n_states = 10;
 		printf("E0 = %13.6f E1 = %13.6f \n", e0, e1);
 		assert (abs(e1) >= overlap_thresh); 
 		printf("Ground state energy from the full H diagonalization: %13.6f\n", e_full[0]);
-		printf("Ground state energy from the projected esitmator: %13.6f\n", e0 / e1);
+		printf("Ground state energy from the projected esitmator (first method): %13.6f\n", e0 / e1);
+
+		// Here I test a different way of calculating energy using projected estimator
+		// and its eval method operating on single determinants
+		double num = 0.0, denom = 0.0;
+		auto n_bf = basis.get_basis_size();
+		for (size_t i = 0; i < n_bf; i++) {
+			auto [n_, d_] = proj_en.eval(i);
+			num += n_ * psi0_full[i];
+			denom += d_ * psi0_full[i];
+		}
+		printf("Ground state energy from the projected esitmator (second method): %13.6f\n", num / denom);
 	}
 
     return 0;
