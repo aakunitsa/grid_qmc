@@ -9,10 +9,11 @@
 #include <iostream>
 #include <chrono>
 #include <gsl/gsl_statistics.h>
+#include <gsl/gsl_rstat.h>
 #include "omp.h"
 
 
-FCIQMC_simple::FCIQMC_simple(std::map<string, int> &p, Hamiltonian &h, Basis &b, ProjEstimator &e) : gh(h), gb(b), en_proj(e), par(p) {
+FCIQMC_simple::FCIQMC_simple(std::map<string, int> &p, std::map<string, double> &dp, Hamiltonian &h, Basis &b, ProjEstimator &e) : gh(h), gb(b), en_proj(e), par(p) {
 
 	// Process input parameters and/or set defaults
 
@@ -21,6 +22,9 @@ FCIQMC_simple::FCIQMC_simple(std::map<string, int> &p, Hamiltonian &h, Basis &b,
     m_steps_per_block = p["steps_per_block"];
 	m_N_blocks = p["N_blocks"];
 	m_N_equil = int(0.25 * m_N_blocks);
+
+	dt = dp["dt"];
+	B = dp["B"];
 
 	// Retrieve information about the basis set & initialize big array to zeros
     m_walker_ensemble.resize(gb.get_basis_size());
@@ -112,7 +116,9 @@ void FCIQMC_simple::initialize (bool uniform) {
 		// numbers
 
 		m_E_T = min_diag - 0.1, m_E_M = min_diag;  // initial guess for the ground state energy
-		m_N_uniq = basis_size;
+		m_N_uniq = 0;
+		for (const auto &w : m_walker_ensemble)
+			m_N_uniq += abs(w);
 	} else {
 		// 1. Construct a truncated basis
 		auto H_diag = gh.build_diagonal();
@@ -121,25 +127,41 @@ void FCIQMC_simple::initialize (bool uniform) {
 		// 2. Diagonalize Hamiltonian in truncated basis and obtain initial guess function and energy
 		auto guess_en = tr_gh.diag(true);
 		std::vector<double> guess_wfn = tr_gh.get_wfn();
-		// 3. Use coefficients of the w.f. expansion to populate global array (_no sampling_ - just binning)
+		// 3. Use coefficients of the w.f. expansion to populate global array (use sampling!)
 		double norm = 0.0;
 		for (auto &c : guess_wfn) norm += abs(c);
-		m_N = 0;
-		for (size_t i = 0; i < tr_gb.get_basis_size(); i++) {
-			m_walker_ensemble[tr_gb.get_id(i)] = int(guess_wfn[i] * m_N / norm);
-			m_N += abs(m_walker_ensemble[tr_gb.get_id(i)]);
+		std::vector<double> init_distr1(tr_gb.get_basis_size(), 0.0);
+		std::transform(guess_wfn.begin(), guess_wfn.end(), init_distr1.begin(), [&](double c) { return abs(c) / norm; });
+		std::discrete_distribution<int> init_distr2(init_distr1.begin(), init_distr1.end());
+        //unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+        //std::default_random_engine generator (seed);
+#pragma omp parallel for
+		for (int i = 0; i < m_N; i++) {
+			int tid = omp_get_thread_num();
+			int tr_det = init_distr2(g[tid]);
+			int sign = guess_wfn[tr_det] > 0 ? 1 : -1;
+#pragma omp critical 
+			{
+				m_walker_ensemble[tr_gb.get_id(tr_det)] += sign;
+			}
 		}
-		m_N_uniq = tr_gb.get_basis_size();
+
+		m_N_uniq = 0;
+		for (const auto &w : m_walker_ensemble)
+			m_N_uniq += abs(w);
+
 		m_E_T = guess_en[0]; m_E_M = guess_en[0];
 		max_diag = *std::max_element(H_diag.begin(), H_diag.end());
 		min_diag = *std::min_element(H_diag.begin(), H_diag.end());
 	}
 
-	dt = 0.1 *  1. / ( max_diag - min_diag); // See PRB 44 9410 (1991)
+	if (dt < 0) 
+		dt = 0.1 *  1. / ( max_diag - min_diag); // See PRB 44 9410 (1991)
 
 	std::cout << " Maximum H_ii = " << max_diag << std::endl;
 	std::cout << " Minimum H_ii = " << min_diag << std::endl;
 	std::cout << " Number of walkers = " << m_N << std::endl;
+	std::cout << " Number of unique walkers = " << m_N_uniq << std::endl;
 	printf(" Imaginary time-step = %10.6f\n", dt);
 	printf(" Initial guess for the energy offset = %10.6f\n", m_E_T);
 
@@ -164,14 +186,17 @@ void FCIQMC_simple::run() {
 	// 2.1.3 Collect stats
 	
 	// Some parameters
-	double B = 1.0; // damping parameter for population control
+	if (B < 0)
+		B = 1.0; // default damping parameter for population control
+	// Running statistics (GSL)
+    gsl_rstat_workspace *rstat_m = gsl_rstat_alloc(), *rstat_g = gsl_rstat_alloc();
 
-	printf("Running FCIQMC calculation of %d threads\n", omp_get_max_threads());
+	printf( ">>>>>>>>> Running FCIQMC calculation of %d threads <<<<<<<<<<\n", omp_get_max_threads());
 
 	// Starting equilibration run here (dt will not be adjusted)
-    printf( "block #  total pop.  E_m (mixed)  E_g (growth)\n");
-    printf( "=======  ==========  ===========  ============\n");
-    printf( "-------------- Equilibration run -------------\n");
+    printf( "block #  total pop.  E_m (mixed)  E_g (growth)  <E_m>   <E_g>\n");
+    printf( "=======  ==========  ===========  ============  =====   =====\n");
+    printf( "---------------------- Equilibration run --------------------\n");
 	std::cout.flush();
 
 	for (size_t iblock = 0; iblock < m_N_equil; iblock++) {
@@ -183,13 +208,13 @@ void FCIQMC_simple::run() {
 			exit(EXIT_FAILURE);
 		}
 		m_E_T -= B / (m_steps_per_block * dt) * log (double(N_after) / N_before);
-        printf( "%-7d %-10d %-13.6f %-13.6f\n", iblock, get_num_total(), m_E_M, m_E_T); 
+        printf( "%-7d %-10d %-13.6f %-13.6f %-13s %-13s\n", iblock, get_num_total(), m_E_M, m_E_T, "-", "-"); 
 		std::cout.flush();
 	}
 
 	// Production run
 	
-    printf( "-------------- Production run ------------\n");
+    printf( "---------------------- Production run ------------------------\n");
 	std::cout.flush();
 
 	for (size_t iblock = 0; iblock < m_N_blocks; iblock++) {
@@ -201,9 +226,16 @@ void FCIQMC_simple::run() {
 			exit(EXIT_FAILURE);
 		}
 		m_E_T -= B / (m_steps_per_block * dt) * log (double(N_after) / N_before);
-        printf( "%-7d %-10d %-13.6f %-13.6f\n", iblock, get_num_total(), m_E_M, m_E_T); 
+        gsl_rstat_add(m_E_M, rstat_m);
+        gsl_rstat_add(m_E_T, rstat_g);
+        printf( "%-7d %-10d %-13.6f %-13.6f %-13.6f %-13.6f\n", iblock, get_num_total(), m_E_M, m_E_T, gsl_rstat_mean(rstat_m), gsl_rstat_mean(rstat_g)); 
 		std::cout.flush();
 	}
+
+	gsl_rstat_free(rstat_m);
+	gsl_rstat_free(rstat_g);
+
+
 }
 
 
@@ -248,8 +280,8 @@ void FCIQMC_simple::OneTimeStep(bool equil) {
                 double h = gh.matrix(i, j);
                 int sign = (h >= 0 ? 1 : -1) * (-1) * sign_ref;
                 double ps = abs(h) * dt / sprob; 
-                if (ps > 2)
-                    cout << "ps = " << ps << "!" << endl; 
+                //if (ps > 2)
+                //    cout << "ps = " << ps << "!" << endl; 
 
                 int survivors = int(ps);
                 if (ps - survivors > u(g[tid])) 

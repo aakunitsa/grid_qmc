@@ -13,6 +13,8 @@
 
 extern "C" void second_deriv_(double *R, int *IA, int *NRAD); // Note: ia comes first
 extern "C" int construct_grid_ang_(int *ag, double *x, double *y, double *z, double *w); 
+extern "C" void construct_rgrid_(int *nrad, int *ia);
+extern "C" void destroy_rgrid_();
 
 
 void print_vector(std::vector<double> &&v) {
@@ -149,13 +151,18 @@ void Becke_grid::test_grid() {
 Laplacian::Laplacian(map<string, int> &p) : g(p) {
     d1.resize(g.nrad);
     d2.resize(g.nrad);
+	ia = int(p["Z"]);
+	// Grid parameters
+	int nrad = int(g.nrad);
+	int iat = ia;
+	construct_rgrid_(&nrad, &iat);
 }
 
 void Laplacian::apply_fortran(const double *f, double *lapl_f) {
 
 	// This is just a thin wrapper around second_deriv_; see below
 	int nrad = int(g.nrad);
-	int iat = 2;
+	int iat = ia;
 	std::copy(f, f+g.nrad, lapl_f);
 	second_deriv_(lapl_f, &iat, &nrad); // This is distructive! psi now contains laplacian of psi
 
@@ -211,7 +218,7 @@ void Laplacian::test_laplacian() {
 
 
 	int nrad = int(g.nrad);
-	int iat = 2;
+	int iat = ia;
 
 	double max_diff = 0.0;
 
@@ -269,6 +276,10 @@ void Laplacian::test_laplacian() {
 		max_diff = std::max(max_diff, std::abs(psi[i] - lapl_psi[i]));
 	printf("Maximum laplacian error is %.10e for 3S function \n", max_diff);
 
+}
+
+Laplacian::~Laplacian() {
+	destroy_rgrid_();
 }
 
 Coulomb::Coulomb(std::map<string, int> &p) : g(p), ss(g.L_max) {

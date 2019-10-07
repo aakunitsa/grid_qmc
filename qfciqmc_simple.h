@@ -93,9 +93,11 @@ class FCIQMC_simple {
         int m_N_uniq, m_N;
         int m_steps_per_block, m_N_blocks, m_N_equil;
         double m_E_T, m_E_M;
+
+
 		int init_guess_subspace;
 
-		double dt; // imaginary time step
+		double B, dt; // imaginary time step
 
 		// All the objects below have to be compatible with each other
         Hamiltonian &gh; // The Hamiltonian has to be compatible with the basis
@@ -117,7 +119,7 @@ class FCIQMC_simple {
 
     public:
 
-        FCIQMC_simple(std::map<string, int> &par, Hamiltonian &h, Basis &b, ProjEstimator &e);
+        FCIQMC_simple(std::map<string, int> &par, std::map<string, double> &dpar, Hamiltonian &h, Basis &b, ProjEstimator &e);
         ~FCIQMC_simple();
 
         // Propagation and energy estimators

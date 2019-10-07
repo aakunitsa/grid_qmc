@@ -326,7 +326,7 @@ size_t n_states = 10;
 		size_t subspace_size = std::min(basis.get_basis_size(), size_t(q.params["fciqmc_projection_subspace"]));
 		TruncatedBasis tr_basis(q.params, g_int.n1porb, subspace_size, d, basis);
 		ProjEstimator proj_en(g_int, tr_basis);
-		FCIQMC_simple s(q.params, h, basis, proj_en);
+		FCIQMC_simple s(q.params, q.dparams, h, basis, proj_en);
 		s.run();
 	} else if (q.params["run_type"] == 3) {
 		// This is a test for the projected estimator

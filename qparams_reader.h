@@ -22,6 +22,8 @@ class Params_reader {
 		                           {"run_type", 0}, {"steps_per_block", 5}, {"N_blocks", 1000}, {"fci_subspace", -1}, 
 								   {"fciqmc_projection_subspace", -1}, {"fciqmc_guess_subspace", -1}};
 
+        map<string, double> dparams = {{"B", -1} , {"dt", -1}};
+
 		string orbital_file, fcidump_file; // Need to be exposed to other classes
 
     public:

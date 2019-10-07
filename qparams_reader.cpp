@@ -74,6 +74,7 @@ void Params_reader::perform() {
 	    string key = line.substr(0, delimiter), value = line.substr(delimiter + 1, string::npos);
         key = key.substr(0, key.find_last_not_of(" ") + 1);
         if(params.find(key) != params.end()) params[key] = atoi(value.c_str()); 
+        if(dparams.find(key) != dparams.end()) dparams[key] = atoi(value.c_str()); 
 		if(key.compare("fcidump") == 0) fcidump_file = value;
     }
         printf("Done.\n");
@@ -82,7 +83,9 @@ void Params_reader::perform() {
         //printf( " Running on %3d threads\n", );
         for (auto it = params.begin(); it != params.end(); it++)
             printf(" %s = %8d\n", (it->first).c_str(), it->second);
-
+        for (auto it = dparams.begin(); it != dparams.end(); it++)
+            printf(" %s = %8d\n", (it->first).c_str(), it->second);
+        printf( " ---------------------------------\n");
     } else {
         printf("Failed to find the input file %s... Exiting.\n", input_file.c_str());
         exit(1);

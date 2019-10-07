@@ -1,6 +1,6 @@
-MODULE DERIVATIVE
+MODULE DERIVATIVE_AUX
 
-IMPLICIT NONE
+    IMPLICIT NONE
 
 INTEGER :: RG
 REAL(8),PARAMETER :: PI = 3.14159265358979_8
@@ -10,6 +10,13 @@ REAL(8),PARAMETER :: BSRADI(17) = &
 REAL(8),ALLOCATABLE :: SG_GAUSS_CHEV(:)      ! RADIAL GRID POINTS
 REAL(8),ALLOCATABLE :: SG_GAUSS_CHEV_W(:)    ! RADIAL GRID WEIGHTS
 
+END MODULE DERIVATIVE_AUX
+
+
+MODULE DERIVATIVE
+
+IMPLICIT NONE
+
 CONTAINS
 
 SUBROUTINE SECOND_DERIV(R, IA, NRAD ) bind (C, name = 'second_deriv_')
@@ -17,6 +24,7 @@ SUBROUTINE SECOND_DERIV(R, IA, NRAD ) bind (C, name = 'second_deriv_')
 ! (1/r)(d2/dr2)rf(r) = (2/r)(df/dr)+(d2f/dr2) = (2/r)(dx/dr)(df/dx) + (d2x/dr2)(df/dx) + (dx/dr)^2(d2f/dx2)
    
    use iso_c_binding
+   USE DERIVATIVE_AUX
 
    IMPLICIT NONE
    INTEGER :: IA, NRAD
@@ -27,10 +35,6 @@ SUBROUTINE SECOND_DERIV(R, IA, NRAD ) bind (C, name = 'second_deriv_')
    INTEGER :: I
    
    DOUBLE PRECISION :: R0,X,OMEGA
-   ! OMP SINGLE is blocking
-   !$OMP SINGLE
-   CALL CONSTRUCT_RGRID(NRAD, IA)
-   !$OMP END SINGLE
 
    H=PI/DFLOAT(RG+1)
    allocate(R1D(RG),R2D(RG))
@@ -91,6 +95,7 @@ SUBROUTINE SECOND_DERIV(R, IA, NRAD ) bind (C, name = 'second_deriv_')
    !write(*, *) 'R2D(2) = ', R2D(2)
    !write(*, '(10F13.6 )') (R2D(I), I = 1, RG)
 
+   !print*, 'Will use the grid below'
    R0=BSRADI(IA)
    DO I=1,RG
      OMEGA=DFLOAT(I)*PI/DFLOAT(RG+1)
@@ -103,10 +108,6 @@ SUBROUTINE SECOND_DERIV(R, IA, NRAD ) bind (C, name = 'second_deriv_')
 
    DEALLOCATE(R2D,R1D)
 
-   ! OMP SINGLE is blocking
-   !$OMP SINGLE
-   CALL DESTROY_RGRID
-   !$OMP END SINGLE
 
    RETURN
 END SUBROUTINE SECOND_DERIV
@@ -118,6 +119,7 @@ SUBROUTINE SECOND_DERIV2(R,IA, NRAD) bind (C, name = 'second_deriv2_')
 ! (1/r)(d2/dr2)r r^-1f(r) = (1/r)(d2x/dr2)(df/dx) + (1/r)(dx/dr)^2(d2f/dx2)
    
    use iso_c_binding
+   USE DERIVATIVE_AUX
 
 
    IMPLICIT NONE
@@ -129,10 +131,6 @@ SUBROUTINE SECOND_DERIV2(R,IA, NRAD) bind (C, name = 'second_deriv2_')
    INTEGER :: I
    DOUBLE PRECISION :: R0,X,OMEGA
 
-   ! OMP SINGLE is blocking
-   !$OMP SINGLE
-   CALL CONSTRUCT_RGRID(NRAD, IA)
-   !$OMP END SINGLE
 
    ALLOCATE(R1D(RG),R2D(RG))
    H=PI/DFLOAT(RG+1)
@@ -195,10 +193,6 @@ SUBROUTINE SECOND_DERIV2(R,IA, NRAD) bind (C, name = 'second_deriv2_')
 
    DEALLOCATE(R2D,R1D)
 
-   ! OMP SINGLE is blocking
-   !$OMP SINGLE
-   CALL DESTROY_RGRID
-   !$OMP END SINGLE
 
    RETURN
 END SUBROUTINE
@@ -208,6 +202,7 @@ SUBROUTINE SECOND_DERIV2_DEBUG(R,IA, NRAD, R1D, R2D) bind (C, name = 'second_der
 ! (1/r)(d2/dr2)r r^-1f(r) = (1/r)(d2x/dr2)(df/dx) + (1/r)(dx/dr)^2(d2f/dx2)
    
    use iso_c_binding
+   USE DERIVATIVE_AUX
 
 
    IMPLICIT NONE
@@ -217,11 +212,6 @@ SUBROUTINE SECOND_DERIV2_DEBUG(R,IA, NRAD, R1D, R2D) bind (C, name = 'second_der
    real(8) :: H
    INTEGER :: I
    real(8) :: R0,X,OMEGA
-
-   ! OMP SINGLE is blocking
-   !$OMP SINGLE
-   CALL CONSTRUCT_RGRID(NRAD, IA)
-   !$OMP END SINGLE
 
    H=PI/DFLOAT(RG+1)
 
@@ -282,15 +272,13 @@ SUBROUTINE SECOND_DERIV2_DEBUG(R,IA, NRAD, R1D, R2D) bind (C, name = 'second_der
           +((1.0_8-X)*(1.0_8-X)*(1.0_8-X)*(1.0_8-X)/(4.0_8*R0*R0*DSIN(OMEGA)*DSIN(OMEGA))) * R2D(I)
    ENDDO
 
-   ! OMP SINGLE is blocking
-   !$OMP SINGLE
-   CALL DESTROY_RGRID
-   !$OMP END SINGLE
-
    RETURN
 END SUBROUTINE
 
-SUBROUTINE CONSTRUCT_RGRID(NRAD, IA)
+SUBROUTINE CONSTRUCT_RGRID(NRAD, IA) bind (C, name = 'construct_rgrid_')
+
+    use iso_c_binding
+    USE DERIVATIVE_AUX
 
     implicit none
 
@@ -300,6 +288,7 @@ SUBROUTINE CONSTRUCT_RGRID(NRAD, IA)
 
     R1 = BSRADI(ia) 
     RG = NRAD
+
 
     ! Construct the radial grid
 
@@ -311,13 +300,20 @@ SUBROUTINE CONSTRUCT_RGRID(NRAD, IA)
         SG_GAUSS_CHEV_W(J)=2.0_8*R1/(1.0_8-X)**2*PI/DFLOAT(RG+1)*DSIN(DFLOAT(J)*PI/DFLOAT(RG+1))*SG_GAUSS_CHEV(J)**2
     ENDDO
 
+    !print*, 'finished constructing the grid in second_derivative'
+
 
 END SUBROUTINE
 
 
-SUBROUTINE DESTROY_RGRID
+SUBROUTINE DESTROY_RGRID() bind (C, name = 'destroy_rgrid_')
+
+    use iso_c_binding
+    USE DERIVATIVE_AUX
 
     implicit none
+
+    !print*, 'Will destroy becke grid below'
 
     DEALLOCATE(SG_GAUSS_CHEV ,SG_GAUSS_CHEV_W)
 
