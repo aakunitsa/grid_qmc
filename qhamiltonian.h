@@ -213,6 +213,8 @@ class Hamiltonian {
 
 		Integral_factory & get_integral_factory() { return ig; }
 
+		void save_matrix();
+
     private:
 
 		Integral_factory &ig; // Integral generator

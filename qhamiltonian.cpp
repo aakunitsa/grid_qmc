@@ -189,9 +189,12 @@ TruncatedBasis::TruncatedBasis(std::map<string, int> &p, int n1porb, int subspac
 	assert (full_bas.get_basis_size() == h_diag.size() && (subspace_size <= full_bas.get_basis_size())); // We require that the diagonal is consistent with full_bas
 	// Sort the diagonal and extract a set of subspace_size lowest energy determinants
 	std::vector<size_t> iperm(full_bas.get_basis_size());
-	gsl_sort_index(iperm.data(), h_diag.data(), 1, get_basis_size());
+	gsl_sort_index(iperm.data(), h_diag.data(), 1, full_bas.get_basis_size());
 	std::copy(iperm.begin(), std::next(iperm.begin(), subspace_size), smap.begin());
-
+	//std::cout << " Printing iperm below : " << std::endl;
+	//for (auto i : iperm) 
+		//std::cout << i << '\t';
+	//std::cout << std::endl;
 }
 
 Hamiltonian::Hamiltonian(Integral_factory &int_f, Basis &nel_basis) : ig(int_f), bas(nel_basis) { 
@@ -240,6 +243,8 @@ std::vector<double> Hamiltonian::build_diagonal() {
 		}
 
 		tmp_H_diag[i] = Hii;
+		double thresh = 1e-14;
+		assert(abs(Hii - matrix(i,i)) <= thresh);
 	}
 
 	// After diagonal has been calculated - perform indirect sorting to populate iperm
@@ -277,6 +282,24 @@ double Hamiltonian::matrix(size_t i, size_t j) {
 	}
 
 	return Hij;
+}
+
+void Hamiltonian::save_matrix() {
+	// Matrix will be saved in a row major order 
+	// to the text file hamiltonian.dat
+	
+	fstream h_file;
+	h_file.open("HAMILTONIAN.DAT", std::ios::out);
+	assert(h_file.is_open());
+
+	auto n_bf = bas.get_basis_size();
+	for (size_t irow = 0; irow < n_bf; irow++)
+		for (size_t icol = 0; icol < n_bf; icol++) {
+			double h = matrix(irow, icol) ;
+			h_file << std::scientific << std::setprecision(20) << std::setw(28) << h << std::endl;
+		}
+
+	h_file.close();
 }
 
 
@@ -332,6 +355,9 @@ std::vector<double> Hamiltonian::diag(bool save_wfn) {
 
 			if ( i == j ) max_d = std::max(max_d, std::abs(Hij));
 			if ( i != j ) max_offd = std::max(max_offd, std::abs(Hij));
+
+			double thresh = 1e-14;
+			assert(abs(Hij - matrix(i,j)) <= thresh);
 
 			gsl_matrix_set(h_grid, i, j, Hij);
 			gsl_matrix_set(h_grid, j, i, Hij);

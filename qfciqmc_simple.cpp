@@ -1,6 +1,7 @@
 #include "qfciqmc_simple.h"
 #include "qrandom_seed.h"
 #include <vector>
+#include <cstdlib>
 #include <limits>
 #include <fstream>
 #include <cstdio>
@@ -67,7 +68,9 @@ FCIQMC_simple::FCIQMC_simple(std::map<string, int> &p, Hamiltonian &h, Basis &b,
 	}
 */
 	// Prepare spawned 
-	std::vector<int> spawned(gb.get_basis_size(), 0); 
+	spawned.resize(gb.get_basis_size()); 
+	// Temporary
+	gh.save_matrix();
 
 }
 
@@ -108,7 +111,7 @@ void FCIQMC_simple::initialize (bool uniform) {
 		// I should setup a separate parameter reader for the floating point 
 		// numbers
 
-		m_E_T = min_diag, m_E_M = min_diag;  // initial guess for the ground state energy
+		m_E_T = min_diag - 0.1, m_E_M = min_diag;  // initial guess for the ground state energy
 		m_N_uniq = basis_size;
 	} else {
 		// 1. Construct a truncated basis
@@ -132,12 +135,19 @@ void FCIQMC_simple::initialize (bool uniform) {
 		min_diag = *std::min_element(H_diag.begin(), H_diag.end());
 	}
 
-	dt = 1. / ( max_diag - min_diag); // See PRB 44 9410 (1991)
+	dt = 0.1 *  1. / ( max_diag - min_diag); // See PRB 44 9410 (1991)
 
 	std::cout << " Maximum H_ii = " << max_diag << std::endl;
 	std::cout << " Minimum H_ii = " << min_diag << std::endl;
 	std::cout << " Number of walkers = " << m_N << std::endl;
 	printf(" Imaginary time-step = %10.6f\n", dt);
+	printf(" Initial guess for the energy offset = %10.6f\n", m_E_T);
+
+	// Print m_walker_ensemble
+	//std::cout << " Printing the occupation vector" << std::endl;
+	//for (auto p : m_walker_ensemble)
+	//	std::cout << p << ' ';
+    //std::cout << std::endl;
 
 }
 
@@ -154,7 +164,9 @@ void FCIQMC_simple::run() {
 	// 2.1.3 Collect stats
 	
 	// Some parameters
-	double B = 0.1; // damping parameter for population control
+	double B = 1.0; // damping parameter for population control
+
+	printf("Running FCIQMC calculation of %d threads\n", omp_get_max_threads());
 
 	// Starting equilibration run here (dt will not be adjusted)
     printf( "block #  total pop.  E_m (mixed)  E_g (growth)\n");
@@ -165,8 +177,13 @@ void FCIQMC_simple::run() {
 	for (size_t iblock = 0; iblock < m_N_equil; iblock++) {
 		int N_after, N_before = m_N;
 		for (size_t istep = 0; istep < m_steps_per_block; istep++) OneTimeStep(true);
-		N_after = m_N; m_E_T -= B / (m_steps_per_block * dt) * log (double(N_after) / N_before);
-        printf( "%-7d %-10d %-13.6f %-13.6f %-13.6f\n", iblock, get_num_total(), m_E_M, m_E_T); 
+		N_after = m_N; 
+		if (N_after == 0) {
+			std::cout << "All walkers died! Aborting..." << std::endl; 
+			exit(EXIT_FAILURE);
+		}
+		m_E_T -= B / (m_steps_per_block * dt) * log (double(N_after) / N_before);
+        printf( "%-7d %-10d %-13.6f %-13.6f\n", iblock, get_num_total(), m_E_M, m_E_T); 
 		std::cout.flush();
 	}
 
@@ -178,8 +195,13 @@ void FCIQMC_simple::run() {
 	for (size_t iblock = 0; iblock < m_N_blocks; iblock++) {
 		int N_after, N_before = m_N;
 		for (size_t istep = 0; istep < m_steps_per_block; istep++) OneTimeStep(false);
-		N_after = m_N; m_E_T -= B / (m_steps_per_block * dt) * log (double(N_after) / N_before);
-        printf( "%-7d %-10d %-13.6f %-13.6f %-13.6f\n", iblock, get_num_total(), m_E_M, m_E_T); 
+		N_after = m_N; 
+		if (N_after == 0) {
+			std::cout << "All walkers died! Aborting..." << std::endl; 
+			exit(EXIT_FAILURE);
+		}
+		m_E_T -= B / (m_steps_per_block * dt) * log (double(N_after) / N_before);
+        printf( "%-7d %-10d %-13.6f %-13.6f\n", iblock, get_num_total(), m_E_M, m_E_T); 
 		std::cout.flush();
 	}
 }
@@ -188,6 +210,7 @@ void FCIQMC_simple::run() {
 void FCIQMC_simple::OneTimeStep(bool equil) {
 
 	int basis_size = int(gb.get_basis_size());
+	assert (m_walker_ensemble.size() == basis_size);
     const int N_0 = m_N;
     int total_spawned = 0, anti_creations = 0, total_killed = 0, total_cloned = 0, N = 0, N_pr = 0, N_uniq = 0;
     uniform_real_distribution<double> u(0.0, 1.0);
@@ -212,10 +235,12 @@ void FCIQMC_simple::OneTimeStep(bool equil) {
             int tid = omp_get_thread_num();
 
             const int n_walkers = abs(m_walker_ensemble[i]);
+			if (n_walkers == 0) continue; // This is important since we are working with a full population vector
             N_pr += n_walkers;
 			auto neigh = gb.get_neigh(i);
 			double sprob = 1. / (neigh.size() - 1); // -1 appears because determinant i is included in the list
             const int sign_ref = ( m_walker_ensemble[i] > 0 ? 1 : -1);
+			//std::cout << "Doing spawning for walker " << i << std::endl;
 			auto conn = sample_connected(i, n_walkers); 
             for (auto &j : conn) {
                 
@@ -259,7 +284,7 @@ void FCIQMC_simple::OneTimeStep(bool equil) {
                 m_walker_ensemble[i] = new_unsigned_weight * sign_ref;
 
             } else {
-				std::cout << "Inside cloning branch" << endl;
+				//std::cout << "Inside cloning branch" << endl;
                 total_cloned += nkill;
                 m_walker_ensemble[i] = (n_walkers + nkill) * sign_ref;
             }
@@ -284,7 +309,7 @@ void FCIQMC_simple::OneTimeStep(bool equil) {
             m_N = N;
             m_N_uniq = N_uniq;
 
-#ifdef DEBUG__
+#ifdef DEBUG
 			std::cout << "Number of walkers processed in the loop = " << N_pr << std::endl;
 			std::cout << "Number of unique walkers " << m_N_uniq << std::endl;
 			std::cout << "Total number of walkers " << m_N << std::endl;
@@ -336,13 +361,13 @@ void FCIQMC_simple::OneTimeStep(bool equil) {
 				e_num += n_ * m_walker_ensemble[i];
 				e_denom += d_ * m_walker_ensemble[i];
 			}
+			#pragma omp single
+			{
+				assert (abs(e_denom) >= 1e-10); // !!! 
+				m_E_M = e_num/e_denom;
+			}
         }
 
-        #pragma omp single
-        {
-			assert (abs(e_denom) >= 1e-10); // !!! 
-            m_E_M = e_num/e_denom;
-        }
     }
 
 

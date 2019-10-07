@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <complex>
 #include <chrono>
+#include <numeric>
 
 #include "qestimator.h"
 
@@ -274,6 +275,9 @@ size_t n_states = 10;
 			DetBasis basis(q.params, g_int.n1porb);
 			Hamiltonian h_full(g_int, basis);
 			auto d = h_full.build_diagonal();
+			//for (auto d__ : d) 
+			//	std::cout << d__ << '\t';
+			//std::cout << std::endl;
 			size_t subspace_size = std::min(basis.get_basis_size(), size_t(q.params["fci_subspace"]));
 			if (subspace_size <= 0) subspace_size = 1; // Probably this would be a terrible estimator but can work
 			TruncatedBasis tr_basis(q.params, g_int.n1porb, subspace_size, d, basis);
@@ -283,6 +287,31 @@ size_t n_states = 10;
 			std::sort(e.begin(), e.end());
 			en.resize(e.size());
 			std::copy(e.begin(), e.end(), en.begin());
+
+			std::cout << "Saving projected H " << std::endl;
+			h_proj.save_matrix();
+			std::cout << "Done!" << std::endl;
+
+			// Some simple tests of the truncated basis class
+			//
+			std::vector<double> fake_d (basis.get_basis_size());
+			std::iota(fake_d.begin(), fake_d.end(), 0);
+			TruncatedBasis fake_tr_basis(q.params, g_int.n1porb, subspace_size, fake_d, basis);
+			Hamiltonian fake_h_proj(g_int, fake_tr_basis);
+			double thresh = 1e-14; // Threshold for checking that the matrix elements are equal
+			std::cout << "Testing TruncatedBasis class" << std::endl;
+			for (size_t i = 0; i < subspace_size; i++) 
+				for (size_t j = 0; j < subspace_size; j++) {
+					double m1 = h_full.matrix(i, j), m2 = fake_h_proj.matrix(i, j);
+					assert (abs(m1 - m2) <= thresh);
+				}
+
+			std::cout << "Passed!" << std::endl;
+			/*
+			std::cout << "Saving (fake) projected H " << std::endl;
+			fake_h_proj.save_matrix();
+			std::cout << "Done!" << std::endl;
+			*/
 		}
 
 		std::cout << " Printing the first " << en.size() << " eigenvalues of the hamiltonian " << std::endl;

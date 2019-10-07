@@ -27,8 +27,10 @@ SUBROUTINE SECOND_DERIV(R, IA, NRAD ) bind (C, name = 'second_deriv_')
    INTEGER :: I
    
    DOUBLE PRECISION :: R0,X,OMEGA
-
+   ! OMP SINGLE is blocking
+   !$OMP SINGLE
    CALL CONSTRUCT_RGRID(NRAD, IA)
+   !$OMP END SINGLE
 
    H=PI/DFLOAT(RG+1)
    allocate(R1D(RG),R2D(RG))
@@ -101,7 +103,10 @@ SUBROUTINE SECOND_DERIV(R, IA, NRAD ) bind (C, name = 'second_deriv_')
 
    DEALLOCATE(R2D,R1D)
 
+   ! OMP SINGLE is blocking
+   !$OMP SINGLE
    CALL DESTROY_RGRID
+   !$OMP END SINGLE
 
    RETURN
 END SUBROUTINE SECOND_DERIV
@@ -124,7 +129,10 @@ SUBROUTINE SECOND_DERIV2(R,IA, NRAD) bind (C, name = 'second_deriv2_')
    INTEGER :: I
    DOUBLE PRECISION :: R0,X,OMEGA
 
+   ! OMP SINGLE is blocking
+   !$OMP SINGLE
    CALL CONSTRUCT_RGRID(NRAD, IA)
+   !$OMP END SINGLE
 
    ALLOCATE(R1D(RG),R2D(RG))
    H=PI/DFLOAT(RG+1)
@@ -187,7 +195,10 @@ SUBROUTINE SECOND_DERIV2(R,IA, NRAD) bind (C, name = 'second_deriv2_')
 
    DEALLOCATE(R2D,R1D)
 
+   ! OMP SINGLE is blocking
+   !$OMP SINGLE
    CALL DESTROY_RGRID
+   !$OMP END SINGLE
 
    RETURN
 END SUBROUTINE
@@ -207,7 +218,10 @@ SUBROUTINE SECOND_DERIV2_DEBUG(R,IA, NRAD, R1D, R2D) bind (C, name = 'second_der
    INTEGER :: I
    real(8) :: R0,X,OMEGA
 
+   ! OMP SINGLE is blocking
+   !$OMP SINGLE
    CALL CONSTRUCT_RGRID(NRAD, IA)
+   !$OMP END SINGLE
 
    H=PI/DFLOAT(RG+1)
 
@@ -268,7 +282,10 @@ SUBROUTINE SECOND_DERIV2_DEBUG(R,IA, NRAD, R1D, R2D) bind (C, name = 'second_der
           +((1.0_8-X)*(1.0_8-X)*(1.0_8-X)*(1.0_8-X)/(4.0_8*R0*R0*DSIN(OMEGA)*DSIN(OMEGA))) * R2D(I)
    ENDDO
 
+   ! OMP SINGLE is blocking
+   !$OMP SINGLE
    CALL DESTROY_RGRID
+   !$OMP END SINGLE
 
    RETURN
 END SUBROUTINE
