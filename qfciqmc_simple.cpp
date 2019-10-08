@@ -305,6 +305,14 @@ void FCIQMC_simple::OneTimeStep(bool equil) {
             if((abs(rate) - nkill) > u(g[tid])) 
                 nkill++;
 
+			#pragma omp critical 
+			{
+				if (abs(rate) / n_walkers  > 2) {
+					std::cout << "Death rate per walker is " << abs(rate) / n_walkers << std::endl;
+					std::cout << "Consider decreasing the time step! " << std::endl;
+				}
+			}
+
             if (rate >= 0) {
                 int new_unsigned_weight = n_walkers - nkill;
                 if (new_unsigned_weight < 0) {

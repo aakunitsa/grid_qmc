@@ -3,12 +3,12 @@
 Grid-based stochastic and deterministic electronic structure methods. The code is currently in the development stage.
 
 # TODO list (deterministic):
-1. Poisson solver
-2. Grid-based Hartree-Fock method
-3. Grid-based explicitly correlated MP2 in real space (Sinanoglu theory)
+1. Grid-based Hartree-Fock method
+2. Grid-based explicitly correlated MP2 in real space (Sinanoglu theory)
 
 # TODO list (stochastic):
-1. FCIQMC in real space using mixed grid-orbital representation
+1. Memory efficient FCIQMC in real space using mixed grid-orbital representation.
+2. MPI parallelization.
 
 # Authors 
 
