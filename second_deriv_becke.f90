@@ -292,6 +292,7 @@ SUBROUTINE CONSTRUCT_RGRID(NRAD, IA) bind (C, name = 'construct_rgrid_')
 
     ! Construct the radial grid
 
+    !print*, 'Will construct the grid in second_derivative'
     ALLOCATE(SG_GAUSS_CHEV(RG),SG_GAUSS_CHEV_W(RG))
 
     DO J=1,RG

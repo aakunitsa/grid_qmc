@@ -201,7 +201,7 @@ void FCIQMC_simple::run() {
 
 	for (size_t iblock = 0; iblock < m_N_equil; iblock++) {
 		int N_after, N_before = m_N;
-		for (size_t istep = 0; istep < m_steps_per_block; istep++) OneTimeStep(true);
+		run_block(m_steps_per_block, true); // The second parameters indicates equilibration
 		N_after = m_N; 
 		if (N_after == 0) {
 			std::cout << "All walkers died! Aborting..." << std::endl; 
@@ -219,7 +219,7 @@ void FCIQMC_simple::run() {
 
 	for (size_t iblock = 0; iblock < m_N_blocks; iblock++) {
 		int N_after, N_before = m_N;
-		for (size_t istep = 0; istep < m_steps_per_block; istep++) OneTimeStep(false);
+		run_block(m_steps_per_block, false);
 		N_after = m_N; 
 		if (N_after == 0) {
 			std::cout << "All walkers died! Aborting..." << std::endl; 
@@ -239,20 +239,14 @@ void FCIQMC_simple::run() {
 }
 
 
-void FCIQMC_simple::OneTimeStep(bool equil) {
+void FCIQMC_simple::run_block(size_t nsteps, bool equil) {
 
-	int basis_size = int(gb.get_basis_size());
-	assert (m_walker_ensemble.size() == basis_size);
+    int basis_size = int(gb.get_basis_size());
+    assert (m_walker_ensemble.size() == basis_size);
     const int N_0 = m_N;
-    int total_spawned = 0, anti_creations = 0, total_killed = 0, total_cloned = 0, N = 0, N_pr = 0, N_uniq = 0;
     uniform_real_distribution<double> u(0.0, 1.0);
-
+    int total_spawned = 0, anti_creations = 0, total_killed = 0, total_cloned = 0, N = 0, N_pr = 0, N_uniq = 0;
     double e_num = 0.0, e_denom = 0.0;
-
-	static int steps_in_block = 0;
-
-	std::fill(spawned.begin(), spawned.end(), 0); // resetting spawned array before making another iteration
-
 
 #ifdef DEBUG
     clock_t t0 = clock();
@@ -261,19 +255,26 @@ void FCIQMC_simple::OneTimeStep(bool equil) {
 
     #pragma omp parallel 
     {
-        #pragma omp for schedule(static) reduction(+:anti_creations,total_spawned,total_cloned,total_killed, N_pr)
+
+        for (size_t step_in_block = 0; step_in_block < nsteps; step_in_block++) {
+
+            std::fill(spawned.begin(), spawned.end(), 0); // resetting spawned array before making another iteration
+            total_spawned = 0, anti_creations = 0, total_killed = 0, total_cloned = 0, N = 0, N_pr = 0, N_uniq = 0;
+            e_num =0.0; e_denom = 0.0;
+
+        #pragma omp for schedule(dynamic) reduction(+:anti_creations,total_spawned,total_cloned,total_killed, N_pr)
         for (int i = 0; i < basis_size; i++) {
 
             int tid = omp_get_thread_num();
 
             const int n_walkers = abs(m_walker_ensemble[i]);
-			if (n_walkers == 0) continue; // This is important since we are working with a full population vector
+            if (n_walkers == 0) continue; // This is important since we are working with a full population vector
             N_pr += n_walkers;
-			auto neigh = gb.get_neigh(i);
-			double sprob = 1. / (neigh.size() - 1); // -1 appears because determinant i is included in the list
+            auto neigh = gb.get_neigh(i);
+            double sprob = 1. / (neigh.size() - 1); // -1 appears because determinant i is included in the list
             const int sign_ref = ( m_walker_ensemble[i] > 0 ? 1 : -1);
-			//std::cout << "Doing spawning for walker " << i << std::endl;
-			auto conn = sample_connected(i, n_walkers); 
+            //std::cout << "Doing spawning for walker " << i << std::endl;
+            auto conn = sample_connected(i, n_walkers); 
             for (auto &j : conn) {
                 
                 // Spawning
@@ -287,13 +288,12 @@ void FCIQMC_simple::OneTimeStep(bool equil) {
                 if (ps - survivors > u(g[tid])) 
                     survivors++;
 
-				// should I do pragma omp atomic?
-                #pragma omp critical
-                {
-					// Add to spawned
-					total_spawned += survivors;
-					spawned[j] += survivors * sign;
-                }
+		// Add to spawned
+                #pragma omp atomic 
+		total_spawned += survivors;
+
+                #pragma omp atomic
+		spawned[j] += survivors * sign;
             }
 
             //std::cout << "Finished spawning for walker # " << i << endl;
@@ -304,7 +304,7 @@ void FCIQMC_simple::OneTimeStep(bool equil) {
 
             if((abs(rate) - nkill) > u(g[tid])) 
                 nkill++;
-
+#ifdef DEBUG
 			#pragma omp critical 
 			{
 				if (abs(rate) / n_walkers  > 2) {
@@ -312,6 +312,7 @@ void FCIQMC_simple::OneTimeStep(bool equil) {
 					std::cout << "Consider decreasing the time step! " << std::endl;
 				}
 			}
+#endif
 
             if (rate >= 0) {
                 int new_unsigned_weight = n_walkers - nkill;
@@ -374,7 +375,7 @@ void FCIQMC_simple::OneTimeStep(bool equil) {
 #endif
 
             if (m_N == 0) {
-				std::cout << "All the walkers died! Bye-bye!\n";
+		std::cout << "All the walkers died! Bye-bye!\n";
                 abort();
             }
 
@@ -386,38 +387,35 @@ void FCIQMC_simple::OneTimeStep(bool equil) {
 
         }
 
-        if (steps_in_block == m_steps_per_block - 1 && !equil) {
+#pragma omp barrier
 
-			// In order to perform the calculation of the mixed estimator
-			// one has to have a trial function which in Booth et al 
-			// paper was taken as a HF determinant; that will be 
-			// implemented later - for now I will use truncated CI
+        if (step_in_block == nsteps - 1 && !equil) {
 
-			auto n_bf = gb.get_basis_size();
+	    // In order to perform the calculation of the mixed estimator
+            // one has to have a trial function which in Booth et al 
+            // paper was taken as a HF determinant; that will be 
+            // implemented later - for now I will use truncated CI
+            auto n_bf = gb.get_basis_size();
             #pragma omp for reduction(+:e_num,e_denom)
-			for (size_t i = 0; i < n_bf; i++) {
+	    for (size_t i = 0; i < n_bf; i++) {
                 if (m_walker_ensemble[i] == 0) continue;
-				auto [n_, d_] = en_proj.eval(i);
-				e_num += n_ * m_walker_ensemble[i];
-				e_denom += d_ * m_walker_ensemble[i];
-			}
-			#pragma omp single
-			{
-				assert (abs(e_denom) >= 1e-10); // !!! 
-				m_E_M = e_num/e_denom;
-			}
+                auto [n_, d_] = en_proj.eval(i);
+                e_num += n_ * m_walker_ensemble[i];
+                e_denom += d_ * m_walker_ensemble[i];
+            }
+            #pragma omp single
+            {
+		assert (abs(e_denom) >= 1e-10); // !!! 
+		m_E_M = e_num/e_denom;
+	    }
+        }
+
+
         }
 
     }
 
 
-    if(!equil) {
-        if (steps_in_block == m_steps_per_block - 1) {
-            steps_in_block = 0;
-        } else {
-            steps_in_block++;
-        }
-    }
 }
 
 
@@ -451,22 +449,15 @@ std::vector< size_t > FCIQMC_simple::sample_connected(const int &src, int n_samp
 }
 
 
-/*
+
 void FCIQMC_simple::save_walkers(fstream &out) {
     assert (out.is_open());
-    vector<Det> &det_basis = m_h.m_basis; // Need to make sure that it has been constructed!
-
-    for (int i = 0; i < det_basis.size(); i++) {
-        auto d_repr = det_basis[i].to_vec();
-        int weight = m_walker_ensemble[i];
-
-        for (auto i : d_repr)
-            out << i << '\t';
-        out << weight << endl;
-
+    auto n_bf = gb.get_basis_size();
+    for (int i = 0; i < n_bf; i++) {
+        out << m_walker_ensemble[i] << std::endl;;
     }
 }
-*/
+
 
 FCIQMC_simple::~FCIQMC_simple() {
 	// Deallocate g here!!!

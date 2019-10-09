@@ -7,6 +7,7 @@
 #include <map>
 #include <string>
 #include <random>
+#include <iostream>
 
 #include "qhamiltonian.h"
 #include "qestimator.h"
@@ -110,7 +111,7 @@ class FCIQMC_simple {
 
 		// Member functions
 
-        void OneTimeStep(bool equil = false);
+        void run_block(size_t nsteps = 1, bool equil = false);
         void initialize(bool uniform = true);
         // Update energy shift; Not used in the present code - is reserved for the production version
         void set_shift(double E_T) { m_E_T = E_T; };
@@ -137,8 +138,7 @@ class FCIQMC_simple {
         int get_num_total() {return m_N;}
 
         // Save ensemble to a text file
-        // Will mute it for now 
-        // void save_walkers(fstream &f);
+        void save_walkers(fstream &f);
 
 };
 

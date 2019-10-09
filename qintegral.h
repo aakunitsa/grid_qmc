@@ -2,6 +2,7 @@
 #define QINT_H
 
 #include <map>
+#include <unordered_map>
 #include <string>
 #include "qgrid.h"
 #include "qorbitals.h"
@@ -66,6 +67,12 @@ class Aux_integrals : public Integral_factory {
 		// Member functions 
 		// WARNING: read_orbs needs to be refactored and should not be used for now
 		bool read_orbs(); // attempts to read orbitals; returns false on failure
+
+                // Cached integrals
+                size_t max_cache_size;
+                std::unordered_map<size_t, double> cached_eri;
+                // Function to convert ERI index into a number
+                size_t encode(size_t i, size_t j, size_t k, size_t l);
 
 };
 

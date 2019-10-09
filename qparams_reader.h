@@ -19,8 +19,8 @@ class Params_reader {
         map<string, int> params = {{"steps", 1000} , {"eq_steps", 250}, {"N", 1000}, {"Z" , 1},
                                    {"electrons", 2}, {"mult", 1}, {"opt_steps", 10}, {"rng", 32},
                                    {"mult", 1}, {"nang", 6}, {"nrad", 5}, {"L_max", 0}, {"read_orb_file", 0},
-		                           {"run_type", 0}, {"steps_per_block", 5}, {"N_blocks", 1000}, {"fci_subspace", -1}, 
-								   {"fciqmc_projection_subspace", -1}, {"fciqmc_guess_subspace", -1}};
+	                           {"run_type", 0}, {"steps_per_block", 5}, {"N_blocks", 1000}, {"fci_subspace", -1}, 
+				   {"fciqmc_projection_subspace", -1}, {"fciqmc_guess_subspace", -1}, {"fciqmc_save_vector", 0}};
 
         map<string, double> dparams = {{"B", -1} , {"dt", -1}};
 

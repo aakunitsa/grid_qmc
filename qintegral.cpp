@@ -7,9 +7,11 @@
 #include <algorithm>
 #include <iostream>
 #include <iomanip>
+#include <utility>
 #include <armadillo>
 #include <gsl/gsl_math.h>
 #include "poisson_fortran.h"
+#include <omp.h>
 
 
 extern "C" void read_orbitals_(double *coeff);
@@ -191,6 +193,7 @@ Aux_integrals::Aux_integrals(Params_reader &pr, ShellSet &aorb) : ss(aorb), Inte
 	// Initialize Poisson solver before starting the calculation
 	
 	int iatom = int(Znuc), nrad = int(g.nrad) , nang = int(g.nang);
+        max_cache_size = std::max(0, p["max_cache_size"]); // Integral cache
 	initialize_poisson_(&nrad, &nang, &iatom);
 
 }
@@ -394,12 +397,32 @@ void Aux_integrals::gen_aux_basis(double lthresh, double orth_thresh) {
 
 }
 
+inline size_t Aux_integrals::encode(size_t i, size_t j, size_t k, size_t l) {
+    // Multiindex i, j, k, l represents the integral in Mulliken notation;
+    // The indeces will be swapped such that 
+
+    size_t minor1 = i > j ? j : i, major1 = i > j ? i : j, 
+           minor2 = k > l ? l : k, major2 = k > l ? k : l;
+
+    size_t pair1 = major1 * (major1 + 1) / 2 + minor1,
+           pair2 = major2 * (major2 + 1) / 2 + minor2;
+
+    if (pair1 > pair2) std::swap(pair1, pair2);
+    
+    return pair1 + pair2 * (pair2 + 1) / 2;
+
+}
+
 double Aux_integrals::ce(size_t i, size_t j, size_t k, size_t l) {
 
 	double m = 0.0; // Matrix element
 
-	size_t ngrid = g.nrad * g.nang;
+        auto eri_idx = encode(i, j, k, l);
+        bool found = (cached_eri.find(eri_idx) != cached_eri.end());
+        if (found) return cached_eri[eri_idx];
 
+	size_t ngrid = g.nrad * g.nang;
+/*
 	std::vector<double> gridw(ngrid, 0.0);
 
 	for(size_t r= 0; r < g.nrad; r++) 
@@ -411,12 +434,21 @@ double Aux_integrals::ce(size_t i, size_t j, size_t k, size_t l) {
     arma::vec orb_k(&paux_bf[k * ngrid], ngrid, false);
     arma::vec orb_l(&paux_bf[l * ngrid], ngrid, false);
 
+*/
 	double i_ijkl = eri_fortran_(&paux_bf[i * ngrid], &paux_bf[j * ngrid], &paux_bf[k * ngrid], &paux_bf[l * ngrid]); 
+        if (cached_eri.size() < max_cache_size) {
+            if (omp_in_parallel()) {
+                #pragma omp critical
+                cached_eri.insert(std::make_pair(eri_idx, i_ijkl));
+            } else {
+                cached_eri.insert(std::make_pair(eri_idx, i_ijkl));
+            }
+        }
 
 	// Will use Poisson solver to generate integrals
 	// This is not practical for larger scale calculations; here I decided to try that for testing 
 	// purposes
-		
+/*		
 	// 1. Generate density for the first orbital pair, say (i, j)
 
 	std::vector<double> den_ij(g.nrad * g.nang, 0.0);
@@ -442,6 +474,8 @@ double Aux_integrals::ce(size_t i, size_t j, size_t k, size_t l) {
 	}
 
 	return m ;
+*/
+        return i_ijkl;
 
 }
 

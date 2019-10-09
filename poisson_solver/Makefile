@@ -1,8 +1,8 @@
 MF = Makefile
 FC = gfortran
 #FFLAGS = -O0 -fcheck=all -std=gnu
-FFLAGS = -O2 -cpp -DEXPERT_LAPACK
-#FFLAGS = -O2 -cpp 
+#FFLAGS = -O2 -cpp -DEXPERT_LAPACK
+FFLAGS = -O2 -cpp 
 
 SRC= pmodules_stripped.f90 ppoisson.f90 plebedev.f pangular.f90
 

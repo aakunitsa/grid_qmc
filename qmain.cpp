@@ -136,12 +136,10 @@ for (int i = 0; i < ss.size(); i++) {
 std::cout << "rY passed all the tests!" << std::endl;
 */
 // Testing Grid_integrals class
-
-Grid_integrals g_int(q.params, ss);
-int num_orb = g_int.n1porb;
-default_random_engine gen;
-uniform_int_distribution<int> u(0, num_orb - 1);
-double thresh = 1e-12;
+//int num_orb = g_int.n1porb;
+//default_random_engine gen;
+//uniform_int_distribution<int> u(0, num_orb - 1);
+//double thresh = 1e-12;
 
 // Run tests and check if ce and ce_ref produce the same result
 
@@ -251,8 +249,12 @@ Time 169.911 s
 size_t n_states = 10;
 
     if (q.params["run_type"] == 0) {
-		g_int.fcidump();
-	} else if (q.params["run_type"] == 1) {
+        std::cout << "Setting up grid integrals in main" << std::endl;
+        Grid_integrals g_int(q.params, ss);
+	g_int.fcidump();
+    } else if (q.params["run_type"] == 1) {
+        std::cout << "Setting up grid integrals in main" << std::endl;
+        Grid_integrals g_int(q.params, ss);
 		// Diagonalize Hamiltonian and print energies of 
 		// the low lying states
 		std::vector<double> en;
@@ -320,6 +322,8 @@ size_t n_states = 10;
 			std::cout << energy << std::endl;
 
 	} else if (q.params["run_type"] == 2) {
+                std::cout << "Setting up grid integrals in main" << std::endl;
+                Grid_integrals g_int(q.params, ss);
 		DetBasis basis(q.params, g_int.n1porb);
 		Hamiltonian h(g_int, basis);
 		auto d = h.build_diagonal();
@@ -329,6 +333,8 @@ size_t n_states = 10;
 		FCIQMC_simple s(q.params, q.dparams, h, basis, proj_en);
 		s.run();
 	} else if (q.params["run_type"] == 3) {
+                std::cout << "Setting up grid integrals in main" << std::endl;
+                Grid_integrals g_int(q.params, ss);
 		// This is a test for the projected estimator
 		DetBasis basis(q.params, g_int.n1porb);
 		Hamiltonian h_full(g_int, basis);
@@ -364,7 +370,21 @@ size_t n_states = 10;
 			denom += d_ * psi0_full[i];
 		}
 		printf("Ground state energy from the projected esitmator (second method): %13.6f\n", num / denom);
-	}
+	} else if (q.params["run_type"] == 4) {
+            // Run FCIQMC in auxiliary basis
+                std::cout << "Setting up auxliliary basis integrals in main" << std::endl;
+                Aux_integrals  aux_int(q, ss); // Note that it uses params_reader (since it may need orbital file name)
+                std::cout << "FCIQMC in auxiliary basis" << std::endl;
+		DetBasis basis(q.params, aux_int.n1porb);
+		Hamiltonian h(aux_int, basis);
+		auto d = h.build_diagonal();
+		size_t subspace_size = std::min(basis.get_basis_size(), size_t(q.params["fciqmc_projection_subspace"]));
+		TruncatedBasis tr_basis(q.params, aux_int.n1porb, subspace_size, d, basis);
+		ProjEstimator proj_en(aux_int, tr_basis);
+		FCIQMC_simple s(q.params, q.dparams, h, basis, proj_en);
+		s.run();
+
+        }
 
     return 0;
 
