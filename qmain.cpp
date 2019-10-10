@@ -374,6 +374,7 @@ size_t n_states = 10;
             // Run FCIQMC in auxiliary basis
                 std::cout << "Setting up auxliliary basis integrals in main" << std::endl;
                 Aux_integrals  aux_int(q, ss); // Note that it uses params_reader (since it may need orbital file name)
+                aux_int.fcidump();
                 std::cout << "FCIQMC in auxiliary basis" << std::endl;
 		DetBasis basis(q.params, aux_int.n1porb);
 		Hamiltonian h(aux_int, basis);
@@ -384,6 +385,17 @@ size_t n_states = 10;
 		FCIQMC_simple s(q.params, q.dparams, h, basis, proj_en);
 		s.run();
 
+        } else if (q.params["run_type"] == 5) {
+            // Run FCIQMC with saved integrals
+                Saved_integrals  s_int(q); // Note that it uses params_reader (since it may need orbital file name)
+		DetBasis basis(q.params, s_int.n1porb);
+		Hamiltonian h(s_int, basis);
+		auto d = h.build_diagonal();
+		size_t subspace_size = std::min(basis.get_basis_size(), size_t(q.params["fciqmc_projection_subspace"]));
+		TruncatedBasis tr_basis(q.params, s_int.n1porb, subspace_size, d, basis);
+		ProjEstimator proj_en(s_int, tr_basis);
+		FCIQMC_simple s(q.params, q.dparams, h, basis, proj_en);
+		s.run();
         }
 
     return 0;

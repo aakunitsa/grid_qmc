@@ -74,7 +74,7 @@ FCIQMC_simple::FCIQMC_simple(std::map<string, int> &p, std::map<string, double> 
 	// Prepare spawned 
 	spawned.resize(gb.get_basis_size()); 
 	// Temporary
-	gh.save_matrix();
+        if (p["save_hamiltonian"] > 0) gh.save_matrix();
 
 }
 
