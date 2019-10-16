@@ -290,18 +290,43 @@ void Hamiltonian::save_matrix() {
 	
 	fstream h_file;
 	h_file.open("HAMILTONIAN.DAT", std::ios::out);
+        double sym_thresh = 1e-6;
 	assert(h_file.is_open());
 
 	auto n_bf = bas.get_basis_size();
+#ifndef _OPENMP
 	for (size_t irow = 0; irow < n_bf; irow++)
 		for (size_t icol = 0; icol < n_bf; icol++) {
 			double h = matrix(irow, icol) ;
+                        assert (abs(matrix(icol, irow) - h) <= sym_thresh);
 			h_file << std::scientific << std::setprecision(20) << std::setw(28) << h << std::endl;
 		}
 
+#else
+        auto matrix_size = n_bf * n_bf;
+        std::vector<double> h_el(matrix_size, 0.0);
+
+#pragma omp parallel for
+        for (size_t i = 0; i < matrix_size; i++) {
+            auto icol = i % n_bf;
+            auto irow  = (i - icol) / n_bf;
+            double h_i = matrix(irow, icol);
+            auto diff = abs(matrix(icol, irow) - h_i); 
+            if (diff >= sym_thresh) {
+                std::cout << "Diff : "; 
+                std::cout << diff <<std::endl;
+                assert ( diff <= sym_thresh);
+            }
+#pragma omp critical 
+            h_el[i] = h_i;
+        }
+
+        for (const auto &h : h_el)
+            h_file << std::scientific << std::setprecision(20) << std::setw(28) << h << std::endl;
+#endif
+
 	h_file.close();
 }
-
 
 std::vector<double> Hamiltonian::diag(bool save_wfn) {
 
@@ -608,6 +633,26 @@ double Hamiltonian::evaluate_core(size_t is, size_t js, int type) {
 	
 
 	auto [ p, from, to ] = gen_excitation(js_v, is_v);
+        /*
+        std::cout << "First : ";
+        for (auto o : is_v)
+            std::cout << o << " ";
+        std::cout << std::endl;
+        std::cout << "Second : ";
+        for (auto o : js_v)
+            std::cout << o << " ";
+        std::cout << std::endl;
+        std::cout << "Unique orbitals for the first (core) ";
+        for (auto o : from)
+            std::cout << o << " ";
+        std::cout << std::endl;
+        std::cout << "Unique orbitals for the second (core) ";
+        for (auto o : to)
+            std::cout << o;
+        std::cout << std::endl;
+        std::cout << "Sign " << p << std::endl;
+        cout.flush();
+        */
 
 	/*
 	for (const auto &o : from)
@@ -620,8 +665,12 @@ double Hamiltonian::evaluate_core(size_t is, size_t js, int type) {
 		// Means that the two orbital strings are equivalent (should be identical)
 		// if ( nel == 2) assert ( js_v[0] == is_v[0] && js_v[1] == is_v[1] ); // Valid for 2e system with Sz = +-1
 		double integral = 0.0;
-		for (size_t i  = 0; i < (type == ALPHA ? nalpha : nbeta); i++ )
-			integral += ig.hc(is_v[i], is_v[i]);
+		for (size_t i  = 0; i < (type == ALPHA ? nalpha : nbeta); i++ ) {
+                    integral += ig.hc(is_v[i], is_v[i]);
+                    //std::cout << ig.hc(is_v[i], is_v[i]) << std::endl;
+                }
+
+                //cout.flush();
 
 		return integral;
 
@@ -639,6 +688,8 @@ double Hamiltonian::evaluate_core(size_t is, size_t js, int type) {
 			}
 		}
         */
+                //std::cout << ig.hc(to[0], from[0]) << std::endl;
+                //cout.flush();
 		return p * ig.hc(to[0], from[0]); // Check if hc is symmetric in the integral generator
 
 	} else {
@@ -660,20 +711,49 @@ double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 	// First, generate excitation vectors for the strings using gen_excitation
 	
 	auto [p, from, to] = gen_excitation(j_s, i_s); 
+/*
+        std::cout << "First : ";
+        for (auto o : i_s)
+            std::cout << o << " ";
+        std::cout << std::endl;
+        std::cout << "Second : ";
+        for (auto o : j_s)
+            std::cout << o << " ";
+        std::cout << std::endl;
 	
+        std::cout << "Unique orbitals for the first (coulomb) ";
+        for (auto o : from)
+            std::cout << o << " ";
+        std::cout << std::endl;
+        std::cout << "Unique orbitals for the second (coulomb) ";
+        for (auto o : to)
+            std::cout << o << " ";
+        std::cout << std::endl;
+        std::cout << "Sign " << p << std::endl;
+        cout.flush();
+*/
 	size_t ex_order = from.size();
 
+        assert (ex_order == from.size() && ex_order == to.size());
+
 	if ( ex_order > 2 ) {
+
+            //std::cout << ex_order << std::endl;
+            //std::cout.flush();
 
 		//assert(false);
 
 		return 0.0;
 
 	} else if ( ex_order == 2 ) {
+                //std::cout << (ig.ce(to[0], from[0], to[1], from[1]) - ig.ce(to[0], from[1], to[1], from[0])) << std::endl;
+                //std::cout.flush();
 
 		if (from.size() == 2) return p * (ig.ce(to[0], from[0], to[1], from[1]) - ig.ce(to[0], from[1], to[1], from[0])); // Mulliken's notation
 
 	} else if (ex_order == 1) {
+            //std::cout << ex_order << std::endl;
+            //std::cout.flush();
 
 		//assert(false);
 		// The following will only be valid for 2e atoms and 
@@ -690,10 +770,15 @@ double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 
 		double matrix_element = 0.0;
 
-		for (size_t ie = 0; ie < (type == ALPHA ? nalpha : nbeta) && j_s[ie] != from[0] && j_s[ie] != to[0]; ie++) {
+		//for (size_t ie = 0; ie < (type == ALPHA ? nalpha : nbeta) && j_s[ie] != from[0] && j_s[ie] != to[0]; ie++) { // This is a very nasty BUG!!
+		for (size_t ie = 0; ie < (type == ALPHA ? nalpha : nbeta); ie++) { // This is a very nasty BUG!!
 			// Note : j_s element can never coincide with a to element; also, from[0] can be included in summation - it cancels out
-			matrix_element += (ig.ce(to[0], from[0], j_s[ie], j_s[ie]) - ig.ce(to[0], j_s[ie], j_s[ie], from[0])); 
+                    if (j_s[ie] == from[0] || j_s[ie] == to[0]) continue;
+                    //std::cout << ie << "--->" << (ig.ce(to[0], from[0], j_s[ie], j_s[ie]) - ig.ce(to[0], j_s[ie], j_s[ie], from[0])) << std::endl;
+                    matrix_element += (ig.ce(to[0], from[0], j_s[ie], j_s[ie]) - ig.ce(to[0], j_s[ie], j_s[ie], from[0])); 
 		}
+
+                //std::cout.flush();
 
 		return p * matrix_element;
 
@@ -701,6 +786,8 @@ double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 
 		// No excitations were generated
 		assert (from.size() == 0 && idet == jdet);
+            //std::cout << ex_order << std::endl;
+            //std::cout.flush();
 
 		double matrix_element = 0.0;
 
@@ -708,9 +795,12 @@ double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 
 		for ( size_t i = 0; i < (type == ALPHA ? nalpha : nbeta); i++ ) {
 			for (size_t j = 0; j < (type == ALPHA ? nalpha : nbeta); j++) { 
+                            //std::cout << (ig.ce(i_s[i], i_s[i], i_s[j], i_s[j]) - ig.ce(i_s[i], i_s[j], i_s[j], i_s[i])) << std::endl;
 				matrix_element += (ig.ce(i_s[i], i_s[i], i_s[j], i_s[j]) - ig.ce(i_s[i], i_s[j], i_s[j], i_s[i]));
 			}
 		}
+
+                std::cout.flush();
 
 		return 0.5 * matrix_element;
 

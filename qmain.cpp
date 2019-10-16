@@ -324,6 +324,7 @@ size_t n_states = 10;
 	} else if (q.params["run_type"] == 2) {
                 std::cout << "Setting up grid integrals in main" << std::endl;
                 Grid_integrals g_int(q.params, ss);
+                g_int.fcidump();
 		DetBasis basis(q.params, g_int.n1porb);
 		Hamiltonian h(g_int, basis);
 		auto d = h.build_diagonal();
@@ -374,10 +375,12 @@ size_t n_states = 10;
             // Run FCIQMC in auxiliary basis
                 std::cout << "Setting up auxliliary basis integrals in main" << std::endl;
                 Aux_integrals  aux_int(q, ss); // Note that it uses params_reader (since it may need orbital file name)
-                aux_int.fcidump();
+                //aux_int.fcidump();
                 std::cout << "FCIQMC in auxiliary basis" << std::endl;
 		DetBasis basis(q.params, aux_int.n1porb);
 		Hamiltonian h(aux_int, basis);
+                auto e = h.diag(false);
+                printf("The ground state energy for the full Hamiltonian is %13.6f\n", *std::min(e.begin(), e.end()));
 		auto d = h.build_diagonal();
 		size_t subspace_size = std::min(basis.get_basis_size(), size_t(q.params["fciqmc_projection_subspace"]));
 		TruncatedBasis tr_basis(q.params, aux_int.n1porb, subspace_size, d, basis);
@@ -394,8 +397,22 @@ size_t n_states = 10;
 		size_t subspace_size = std::min(basis.get_basis_size(), size_t(q.params["fciqmc_projection_subspace"]));
 		TruncatedBasis tr_basis(q.params, s_int.n1porb, subspace_size, d, basis);
 		ProjEstimator proj_en(s_int, tr_basis);
+                // Since this is not meant for production runs but rather for testing 
+                // I will diagonalize the Hamiltonian first and get the ground state energy
+                auto e = h.diag(false);
+                printf("The ground state energy for the full Hamiltonian is %13.6f\n", *std::min(e.begin(), e.end()));
 		FCIQMC_simple s(q.params, q.dparams, h, basis, proj_en);
 		s.run();
+        } else if (q.params["run_type"] == 100) {
+            // Will assign this run type to all sorts of tests
+                std::cout << "Setting up auxliliary basis integrals in main" << std::endl;
+                Aux_integrals  aux_int(q, ss); // Note that it uses params_reader (since it may need orbital file name)
+                aux_int.fcidump();
+                std::cout << "FCIQMC in auxiliary basis" << std::endl;
+		DetBasis basis(q.params, aux_int.n1porb);
+		Hamiltonian h(aux_int, basis);
+                // Calculate some integrals
+                h.save_matrix();
         }
 
     return 0;

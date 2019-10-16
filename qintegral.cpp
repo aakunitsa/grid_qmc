@@ -75,7 +75,7 @@ void Integral_factory::fcidump() {
 	std::vector<int> pairs;
 
 	// populate pairs same way as in Polymer
-	
+        /*
 	for (int i = 0; i < n1porb; i++) {
 		for (int j = i + 1; j < n1porb; j++) {
 			pairs.push_back(i * n1porb + j);
@@ -84,6 +84,12 @@ void Integral_factory::fcidump() {
 
 	for (int j = 0; j < n1porb; j++) {
 		pairs.push_back(j * n1porb + j);
+	}
+        */
+	for (int i = 0; i < n1porb; i++) {
+            for (int j = i; j < n1porb; j++) {
+		pairs.push_back(i * n1porb + j);
+            }
 	}
 	size_t numpairs = n1porb * (n1porb + 1) / 2;
 
@@ -425,6 +431,8 @@ inline size_t Aux_integrals::encode(size_t i, size_t j, size_t k, size_t l) {
     // Multiindex i, j, k, l represents the integral in Mulliken notation;
     // The indeces will be swapped such that 
 
+    // Minor and major index definitions should be swapped
+
     size_t minor1 = (i > j ? j : i), major1 = (i > j ? i : j), 
            minor2 = (k > l ? l : k), major2 = (k > l ? k : l);
 
@@ -437,13 +445,22 @@ inline size_t Aux_integrals::encode(size_t i, size_t j, size_t k, size_t l) {
 
 }
 
-double Aux_integrals::ce(size_t i, size_t j, size_t k, size_t l) {
+double Aux_integrals::ce(size_t i_, size_t j_, size_t k_, size_t l_) {
 
+    size_t i = i_, j = j_, k = k_, l = l_;
+        if (i > j) std::swap(i, j);
+        if (k > l) std::swap(k, l);
+        if (i > k || (i == k && l < j)) {
+                std::swap(i, k);
+                std::swap(j, l);
+        } // Ensures that the "left" pair is always less than the "right" pair; the major index of
+                          // of a pair is the ___first___ index !!
 	double m = 0.0; // Matrix element
 	size_t ngrid = g.nrad * g.nang;
         auto eri_idx = encode(i, j, k, l);
         bool found = (cached_eri.find(eri_idx) != cached_eri.end());
         if (found) { 
+        //if (false) { 
             // Will add this for debugging
             /*
             double thresh = 1e-2;
@@ -675,7 +692,8 @@ bool Saved_integrals::read_fcidump(string &int_file) {
 			if (i > k || (i == k && l < j)) {
 				std::swap(i, k);
 				std::swap(j, l);
-			} 
+			} // Ensures that the "left" pair is always less than the "right" pair; the major index of
+                          // of a pair is the ___first___ index !!
 
 			//std::cout << " New index : " << i << '\t' << j << '\t' << k << '\t' << l << std::endl;
 			//
@@ -719,7 +737,9 @@ bool Saved_integrals::read_fcidump(string &int_file) {
 
 }
 
-double Saved_integrals::hc(size_t i, size_t j) {
+double Saved_integrals::hc(size_t i_, size_t j_) {
+    
+    size_t i = i_, j = j_;
 
 	if (i > j) std::swap(i, j);
 	return hcore[i*n1porb + j];
@@ -727,7 +747,9 @@ double Saved_integrals::hc(size_t i, size_t j) {
 }
 
 
-double Saved_integrals::ce(size_t i, size_t j, size_t k, size_t l) {
+double Saved_integrals::ce(size_t i_, size_t j_, size_t k_, size_t l_) {
+
+    size_t i = i_, j = j_, k = k_, l = l_;
 
 	if (i > j) std::swap(i, j);
 	if (k > l) std::swap(k, l);
