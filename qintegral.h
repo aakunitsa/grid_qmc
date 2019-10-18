@@ -34,6 +34,12 @@ class Integral_factory {
 		// Member variables
 	    Laplacian lp;
 
+                // Memoize integrals
+                size_t max_cache_size;
+                std::unordered_map<size_t, double> cached_eri;
+                // Function to convert ERI index into a number
+                size_t encode(size_t i, size_t j, size_t k, size_t l);
+                bool test_encode();
 };
 
 
@@ -68,12 +74,6 @@ class Aux_integrals : public Integral_factory {
 		// WARNING: read_orbs needs to be refactored and should not be used for now
 		bool read_orbs(); // attempts to read orbitals; returns false on failure
 
-                // Cached integrals
-                size_t max_cache_size;
-                std::unordered_map<size_t, double> cached_eri;
-                // Function to convert ERI index into a number
-                size_t encode(size_t i, size_t j, size_t k, size_t l);
-                bool test_encode();
 
 };
 

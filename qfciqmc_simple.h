@@ -103,7 +103,7 @@ class FCIQMC_simple {
 		// All the objects below have to be compatible with each other
         Hamiltonian &gh; // The Hamiltonian has to be compatible with the basis
 		Basis &gb; 
-		ProjEstimator &en_proj;
+		Estimator &en_proj;
 		// ...........................................................
 
 		Hash_Tree_Det_Lookup det_index;
@@ -120,7 +120,7 @@ class FCIQMC_simple {
 
     public:
 
-        FCIQMC_simple(std::map<string, int> &par, std::map<string, double> &dpar, Hamiltonian &h, Basis &b, ProjEstimator &e);
+        FCIQMC_simple(std::map<string, int> &par, std::map<string, double> &dpar, Hamiltonian &h, Basis &b, Estimator &e);
         ~FCIQMC_simple();
 
         // Propagation and energy estimators

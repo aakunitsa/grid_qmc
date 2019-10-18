@@ -139,6 +139,46 @@ void Integral_factory::fcidump() {
 
 }
 
+bool Integral_factory::test_encode() {
+    bool ok = true;
+    size_t npair = n1porb * (n1porb + 1) / 2;
+    size_t nquad = npair * (npair + 1) / 2;
+    std::map<size_t, size_t> p;
+    for (size_t i = 0; i < n1porb; i++) 
+        for (size_t j = 0; j < n1porb; j++) 
+            for (size_t k = 0; k < n1porb; k++)
+                for (size_t l = 0; l < n1porb; l++) {
+                    auto eri_idx = encode(i, j, k, l);
+                    if (p.find(eri_idx) != p.end()) {
+                        p[eri_idx] += 1;
+                    } else {
+                        p.insert(std::pair(eri_idx, 1));
+                    }
+                }
+
+    ok = ok && (p.size() == nquad);
+
+    return ok;
+}
+
+inline size_t Integral_factory::encode(size_t i, size_t j, size_t k, size_t l) {
+    // Multiindex i, j, k, l represents the integral in Mulliken notation;
+    // The input indeces will not be altered inside the function
+
+    // Minor and major index definitions should be swapped
+
+    size_t minor1 = (i > j ? j : i), major1 = (i > j ? i : j), 
+           minor2 = (k > l ? l : k), major2 = (k > l ? k : l);
+
+    size_t pair1 = (major1 * (major1 + 1) / 2) + minor1,
+           pair2 = (major2 * (major2 + 1) / 2) + minor2;
+
+    if (pair1 > pair2) std::swap(pair1, pair2);
+    
+    return pair1 + (pair2 * (pair2 + 1) / 2);
+
+}
+
 
 // Aux_integrals class
 
@@ -405,45 +445,6 @@ void Aux_integrals::gen_aux_basis(double lthresh, double orth_thresh) {
 
 }
 
-bool Aux_integrals::test_encode() {
-    bool ok = true;
-    size_t npair = n1porb * (n1porb + 1) / 2;
-    size_t nquad = npair * (npair + 1) / 2;
-    std::map<size_t, size_t> p;
-    for (size_t i = 0; i < n1porb; i++) 
-        for (size_t j = 0; j < n1porb; j++) 
-            for (size_t k = 0; k < n1porb; k++)
-                for (size_t l = 0; l < n1porb; l++) {
-                    auto eri_idx = encode(i, j, k, l);
-                    if (p.find(eri_idx) != p.end()) {
-                        p[eri_idx] += 1;
-                    } else {
-                        p.insert(std::pair(eri_idx, 1));
-                    }
-                }
-
-    ok = ok && (p.size() == nquad);
-
-    return ok;
-}
-
-inline size_t Aux_integrals::encode(size_t i, size_t j, size_t k, size_t l) {
-    // Multiindex i, j, k, l represents the integral in Mulliken notation;
-    // The indeces will be swapped such that 
-
-    // Minor and major index definitions should be swapped
-
-    size_t minor1 = (i > j ? j : i), major1 = (i > j ? i : j), 
-           minor2 = (k > l ? l : k), major2 = (k > l ? k : l);
-
-    size_t pair1 = (major1 * (major1 + 1) / 2) + minor1,
-           pair2 = (major2 * (major2 + 1) / 2) + minor2;
-
-    if (pair1 > pair2) std::swap(pair1, pair2);
-    
-    return pair1 + (pair2 * (pair2 + 1) / 2);
-
-}
 
 double Aux_integrals::ce(size_t i_, size_t j_, size_t k_, size_t l_) {
 
@@ -800,8 +801,8 @@ Grid_integrals::Grid_integrals(std::map<string, int> &p, ShellSet &aorb) : ss(ao
 	}
 
 	bool orth = check_orthogonality(orth_thresh);
-
 	assert (orth);
+        max_cache_size = std::max(0, p["max_cache_size"]); // Integral cache
 }
 
 double Grid_integrals::ce(size_t i, size_t j, size_t k, size_t l) {
@@ -810,6 +811,19 @@ double Grid_integrals::ce(size_t i, size_t j, size_t k, size_t l) {
 	// i and j refer to the first electron whereas k and l refer to the second
 	// Extract radial point and angular orbital index
 	
+        size_t i_ = i, j_ = j, k_ = k, l_ = l;
+        if (i_ > j_) std::swap(i_, j_);
+        if (k_ > l_) std::swap(k_, l_);
+        if (i_ > k_ || (i_ == k_ && l_ < j_)) {
+                std::swap(i_, k_);
+                std::swap(j_, l_);
+        } // Ensures that the "left" pair is always less than the "right" pair; the major index of
+                          // of a pair is the ___first___ index !!
+        auto eri_idx_cached = encode(i_, j_, k_, l_);
+        bool found = (cached_eri.find(eri_idx_cached) != cached_eri.end());
+        if (found) { 
+            return cached_eri[eri_idx_cached];
+        }
 
 	auto [ir, iorb] = unpack_orb_index(i);
 	auto [jr, jorb] = unpack_orb_index(j);
@@ -874,6 +888,13 @@ double Grid_integrals::ce(size_t i, size_t j, size_t k, size_t l) {
 		i_ijkl += phase * weight * r12.eval_simple(g.r[ir], g.r[kr], oset[0], oset[1], oset[2], oset[3]);
 
 	}
+
+        if (omp_in_parallel()) {
+            #pragma omp critical
+            if (cached_eri.size() < max_cache_size) cached_eri.insert(std::make_pair(eri_idx_cached, std::real(i_ijkl)));
+        } else {
+            if (cached_eri.size() < max_cache_size) cached_eri.insert(std::make_pair(eri_idx_cached, std::real(i_ijkl)));
+        }
 
 	//return r12.eval_simple(g.r[ir], g.r[kr], ss.aorb[iorb], ss.aorb[jorb], ss.aorb[korb], ss.aorb[lorb]);
 	return std::real(i_ijkl);

@@ -168,6 +168,8 @@ class TruncatedBasis : public Basis {
 		// 1. Remove suspace_size since it is contained in p
 		// 2. Remove h_diag since it is obtainable from d using information from (1)
 		// 3. Remove n1porb since it can be extracted from d as well -- Maybe should keep it for consistency reasons
+                // Will mute the copy constructor for now -- it requires some extra work
+                //TruncatedBasis(TruncatedBasis &tr_b);
 		std::tuple<size_t, size_t> get_num_str() { 
 			auto [na, nb] = full_bas.get_num_str();
 			return std::make_tuple(na, nb); 
@@ -210,6 +212,7 @@ class Hamiltonian {
 
 		std::vector<double> get_wfn() { return gs_wfn; }
 		double check_wfn(); // This function should only be called if the wave function has been saved during diagonalization step
+                //std::vector<double> gen_nos(); // Same as above; should only be called if the w.f. is available
 
 		Integral_factory & get_integral_factory() { return ig; }
 
@@ -229,6 +232,7 @@ class Hamiltonian {
 		double evaluate_coulomb_coupled(size_t i1, size_t i2, size_t i3, size_t i4);
 		double evaluate_coulomb(size_t i, size_t j, int type);
 
+                //std::tuple< std::vector<double>, std::vector<double> > compute_1rdm();
 
 };
 

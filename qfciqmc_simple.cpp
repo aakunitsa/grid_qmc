@@ -13,7 +13,7 @@
 #include "omp.h"
 
 
-FCIQMC_simple::FCIQMC_simple(std::map<string, int> &p, std::map<string, double> &dp, Hamiltonian &h, Basis &b, ProjEstimator &e) : gh(h), gb(b), en_proj(e), par(p) {
+FCIQMC_simple::FCIQMC_simple(std::map<string, int> &p, std::map<string, double> &dp, Hamiltonian &h, Basis &b, Estimator &e) : gh(h), gb(b), en_proj(e), par(p) {
 
 	// Process input parameters and/or set defaults
 
@@ -412,10 +412,7 @@ void FCIQMC_simple::run_block(size_t nsteps, bool equil) {
 
 
         }
-
     }
-
-
 }
 
 
@@ -448,8 +445,6 @@ std::vector< size_t > FCIQMC_simple::sample_connected(const int &src, int n_samp
 	return sample;
 }
 
-
-
 void FCIQMC_simple::save_walkers(fstream &out) {
     assert (out.is_open());
     auto n_bf = gb.get_basis_size();
@@ -457,7 +452,6 @@ void FCIQMC_simple::save_walkers(fstream &out) {
         out << m_walker_ensemble[i] << std::endl;;
     }
 }
-
 
 FCIQMC_simple::~FCIQMC_simple() {
 	// Deallocate g here!!!

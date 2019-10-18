@@ -196,6 +196,14 @@ TruncatedBasis::TruncatedBasis(std::map<string, int> &p, int n1porb, int subspac
 		//std::cout << i << '\t';
 	//std::cout << std::endl;
 }
+/*
+// This code is buggy
+TruncatedBasis::TruncatedBasis(TruncatedBasis &tr_b) : full_bas(tr_b.full_bas) {
+    smap.resize(tr_b.smap.size());
+    std::copy(tr_b.smap.begin(), tr_b.smap.end(), smap.begin());
+    subspace_size = tr_b.subspace_size;
+}
+*/
 
 Hamiltonian::Hamiltonian(Integral_factory &int_f, Basis &nel_basis) : ig(int_f), bas(nel_basis) { 
 

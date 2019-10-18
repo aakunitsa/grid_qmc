@@ -326,11 +326,8 @@ size_t n_states = 10;
                 Grid_integrals g_int(q.params, ss);
                 g_int.fcidump();
 		DetBasis basis(q.params, g_int.n1porb);
-		Hamiltonian h(g_int, basis);
-		auto d = h.build_diagonal();
-		size_t subspace_size = std::min(basis.get_basis_size(), size_t(q.params["fciqmc_projection_subspace"]));
-		TruncatedBasis tr_basis(q.params, g_int.n1porb, subspace_size, d, basis);
-		ProjEstimator proj_en(g_int, tr_basis);
+                Hamiltonian h(g_int, basis);
+		ProjEstimator proj_en(q.params, g_int, basis);
 		FCIQMC_simple s(q.params, q.dparams, h, basis, proj_en);
 		s.run();
 	} else if (q.params["run_type"] == 3) {
@@ -341,18 +338,9 @@ size_t n_states = 10;
 		Hamiltonian h_full(g_int, basis);
 		auto e_full = h_full.diag(true);
 		auto psi0_full = h_full.get_wfn();
-		//double e_check = h_full.check_wfn();
-		//std::cout << "Checking the wave function... " << std::endl;
-		//std::cout << e_check << std::endl;
-		//std::cout << e_full[0] << std::endl;
-		//std::cout << "Done!" << std::endl;
 		// Construct a truncated basis
-		auto d = h_full.build_diagonal();
-		size_t subspace_size = std::min(basis.get_basis_size(), size_t(q.params["fci_subspace"]));
-		std::cout << "Subspace size is " << subspace_size << std::endl;
-		TruncatedBasis tr_basis(q.params, g_int.n1porb, subspace_size, d, basis);
 		std::cout << "Constructing projected estimator " << std::endl;
-		ProjEstimator proj_en(g_int, tr_basis);
+		ProjEstimator proj_en(q.params, g_int, basis);
 		// Test eval for the full wave function
 		auto [ e0 , e1 ] = proj_en.eval(psi0_full);
 		double overlap_thresh = 1e-10;
@@ -381,22 +369,15 @@ size_t n_states = 10;
 		Hamiltonian h(aux_int, basis);
                 auto e = h.diag(false);
                 printf("The ground state energy for the full Hamiltonian is %13.6f\n", *std::min(e.begin(), e.end()));
-		auto d = h.build_diagonal();
-		size_t subspace_size = std::min(basis.get_basis_size(), size_t(q.params["fciqmc_projection_subspace"]));
-		TruncatedBasis tr_basis(q.params, aux_int.n1porb, subspace_size, d, basis);
-		ProjEstimator proj_en(aux_int, tr_basis);
+		ProjEstimator proj_en(q.params, aux_int, basis);
 		FCIQMC_simple s(q.params, q.dparams, h, basis, proj_en);
 		s.run();
-
         } else if (q.params["run_type"] == 5) {
             // Run FCIQMC with saved integrals
                 Saved_integrals  s_int(q); // Note that it uses params_reader (since it may need orbital file name)
 		DetBasis basis(q.params, s_int.n1porb);
 		Hamiltonian h(s_int, basis);
-		auto d = h.build_diagonal();
-		size_t subspace_size = std::min(basis.get_basis_size(), size_t(q.params["fciqmc_projection_subspace"]));
-		TruncatedBasis tr_basis(q.params, s_int.n1porb, subspace_size, d, basis);
-		ProjEstimator proj_en(s_int, tr_basis);
+		ProjEstimator proj_en(q.params, s_int, basis);
                 // Since this is not meant for production runs but rather for testing 
                 // I will diagonalize the Hamiltonian first and get the ground state energy
                 auto e = h.diag(false);
