@@ -35,7 +35,7 @@ class Becke_grid {
 class Laplacian {
     public: 
         Laplacian(map<string, int> &par);
-		~Laplacian();
+	~Laplacian();
         void apply(const double *f, double *lapl_f); // will be changed later
         void apply_fortran(const double *f, double *lapl_f); // thin wrapper around Polymer second_deriv subroutine
         void test_laplacian();

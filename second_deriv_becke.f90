@@ -284,25 +284,25 @@ SUBROUTINE CONSTRUCT_RGRID(NRAD, IA) bind (C, name = 'construct_rgrid_')
 
     real(8) :: R1, X
     integer :: ia, j, nrad
+    logical :: allocated_grid
+    ! Simple fix that allows to 
+    ! initialize several laplacian instances 
+    ! in one program
+    allocated_grid = allocated(SG_GAUSS_CHEV) .and. allocated(SG_GAUSS_CHEV_W)
 
-
-    R1 = BSRADI(ia) 
-    RG = NRAD
-
-
-    ! Construct the radial grid
-
-    !print*, 'Will construct the grid in second_derivative'
-    ALLOCATE(SG_GAUSS_CHEV(RG),SG_GAUSS_CHEV_W(RG))
-
-    DO J=1,RG
-        X=DCOS(DFLOAT(J)*PI/DFLOAT(RG+1))
-        SG_GAUSS_CHEV(J)=R1*(1.0_8+X)/(1.0_8-X)
-        SG_GAUSS_CHEV_W(J)=2.0_8*R1/(1.0_8-X)**2*PI/DFLOAT(RG+1)*DSIN(DFLOAT(J)*PI/DFLOAT(RG+1))*SG_GAUSS_CHEV(J)**2
-    ENDDO
-
-    !print*, 'finished constructing the grid in second_derivative'
-
+    if ( .not. allocated_grid) then
+        R1 = BSRADI(ia) 
+        RG = NRAD
+        ! Construct the radial grid
+        !print*, 'Will construct the grid in second_derivative'
+        ALLOCATE(SG_GAUSS_CHEV(RG),SG_GAUSS_CHEV_W(RG))
+        DO J=1,RG
+            X=DCOS(DFLOAT(J)*PI/DFLOAT(RG+1))
+            SG_GAUSS_CHEV(J)=R1*(1.0_8+X)/(1.0_8-X)
+            SG_GAUSS_CHEV_W(J)=2.0_8*R1/(1.0_8-X)**2*PI/DFLOAT(RG+1)*DSIN(DFLOAT(J)*PI/DFLOAT(RG+1))*SG_GAUSS_CHEV(J)**2
+        ENDDO
+        !print*, 'finished constructing the grid in second_derivative'
+    end if
 
 END SUBROUTINE
 
@@ -314,10 +314,15 @@ SUBROUTINE DESTROY_RGRID() bind (C, name = 'destroy_rgrid_')
 
     implicit none
 
-    !print*, 'Will destroy becke grid below'
-
-    DEALLOCATE(SG_GAUSS_CHEV ,SG_GAUSS_CHEV_W)
-
+    logical :: allocated_grid
+    ! Simple fix that allows to 
+    ! initialize several laplacian instances 
+    ! in one program
+    allocated_grid = allocated(SG_GAUSS_CHEV) .and. allocated(SG_GAUSS_CHEV_W)
+    if (allocated_grid) then 
+        !print*, 'Will destroy becke grid below'
+        DEALLOCATE(SG_GAUSS_CHEV ,SG_GAUSS_CHEV_W)
+    end if
 
 END SUBROUTINE
 
