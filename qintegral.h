@@ -21,6 +21,8 @@ class Integral_factory {
 		virtual double hc(size_t i, size_t j) {return 0.0;}; // Evaluates one particle kinetic energy integral 
 		virtual double ce(size_t i, size_t j, size_t k, size_t l) {return 0.0;}; // Evaluates coulomb integral in chemists notation; i.e. (ij|kl)
 
+                std::vector<double> expand(std::vector<double> &vec); // Expands a vector wrt to the orbital basis defined in paux_bf
+
 		// Member variables
 	    Becke_grid g;
 		int n1porb;

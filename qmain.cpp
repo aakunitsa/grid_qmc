@@ -403,6 +403,15 @@ size_t n_states = 10;
                 printf("The ground state energy for the full Hamiltonian is %13.6f\n", *std::min(e.begin(), e.end()));
 		FCIQMC_simple s(q.params, q.dparams, h, basis, proj_en);
 		s.run();
+        } else if (q.params["run_type"] == 6) {
+                std::cout << "Setting up grid integrals in main" << std::endl;
+                Grid_integrals g_int(q.params, ss);
+		DetBasis basis(q.params, g_int.n1porb);
+                Hamiltonian h(g_int, basis);
+                std::cout << "Setting up a mixed basis estimator" << std::endl;
+		MixedBasisEstimator mb_en(q, g_int, basis);
+		FCIQMC_simple s(q.params, q.dparams, h, basis, mb_en);
+		s.run();
         } else if (q.params["run_type"] == 100) {
             // Will assign this run type to all sorts of tests
                 std::cout << "Setting up auxliliary basis integrals in main" << std::endl;

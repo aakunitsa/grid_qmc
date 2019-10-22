@@ -51,6 +51,21 @@ bool Integral_factory::check_orthogonality(double orth_thresh = 1e-6) {
 
 }
 
+std::vector<double> Integral_factory::expand(std::vector<double> &vec) {
+    // Returns the vector of expansion coefficients
+    assert (vec.size() == g.nrad * g.nang);
+    std::vector<double> exp_coef (n1porb, 0.0);
+    for (int i = 0; i < n1porb; i++) {
+        for (int r = 0; r < g.nrad;r++) {
+            for (int a = 0; a < g.nang; a++) {
+                int g_idx = r * g.nang + a;
+                exp_coef[i] += 4. * M_PI * g.gridw_r[r] * g.gridw_a[a] * paux_bf[ i * g.nang * g.nrad + g_idx] * vec[g_idx];
+            }
+        }
+    }
+
+    return exp_coef;
+}
 
 void Integral_factory::fcidump() {
 
