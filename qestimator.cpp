@@ -3,6 +3,7 @@
 #include <gsl/gsl_math.h>
 #include <gsl/gsl_linalg.h>
 #include <iostream>
+#include <cstdio>
 
 
 MixedBasisEstimator::MixedBasisEstimator(Params_reader &q, Integral_factory &int_f, Basis &bas) : ss(q.params["L_max"]), g(q.params), Estimator(int_f, bas) {
@@ -31,6 +32,14 @@ MixedBasisEstimator::MixedBasisEstimator(Params_reader &q, Integral_factory &int
 	trial_e = e[0];
 	auto v = aux_h_tr.get_wfn();
 	std::copy(v.begin(), v.end(), trial_state.begin());
+        // Calculate the same thing but using Reileigh estimator
+        double e_rei = 0.0;
+        for (size_t i = 0; i < aux_bas_tr-> get_basis_size(); i++) {
+            for (size_t j =0 ; j < aux_bas_tr->get_basis_size(); j++) {
+                e_rei += trial_state[i] * trial_state[j] * aux_h_tr.matrix(i, j);
+            }
+        }
+        std::cout << "Reileigh estimator is " << e_rei / cblas_dnrm2(aux_bas_tr->get_basis_size(), trial_state.data(), 1) << std::endl;
     }
     std::cout << "Ground state energy is " << trial_e << std::endl;
     // Calculate the overlap matrix between the basis vectors 
@@ -53,7 +62,7 @@ MixedBasisEstimator::MixedBasisEstimator(Params_reader &q, Integral_factory &int
                     break;
                 case 2:
                     overlap[j * aux_bas_size + i] = calc_overlap2(aux_bas_tr->get_id(i), j);
-                    assert (abs(o_ - overlap[j * aux_bas_size + i]) <= 1e-14);
+                    //assert (abs(o_ - overlap[j * aux_bas_size + i]) <= 1e-14);
                     break;
                 default:
                     overlap[j * aux_bas_size + i] = calc_overlap(aux_bas_tr->get_id(i), j);
@@ -63,6 +72,95 @@ MixedBasisEstimator::MixedBasisEstimator(Params_reader &q, Integral_factory &int
     }
 
     //std::cout << "Done calculating the overlap" << std::endl;
+    auto [na , nb ] = bas_full.get_ab();
+    if (nel == 2 && nb == 0) {
+        // nb == 0 for simplicity
+        std::cout << "Testing eval..." << std::endl;
+        if (test_eval2()) std::cout << "Done!" << std::endl;
+    }
+}
+
+bool MixedBasisEstimator::test_eval2() {
+    auto [na_full, nb_full] = bas_full.get_ab();
+    auto [na_aux, nb_aux ] = aux_bas_full->get_ab();
+    assert (na_full + nb_full == 2 && na_aux + nb_aux == 2);
+    assert (nb_full == 0 && nb_aux == 0); // I will not retrieve/check beta strings below
+    size_t aux_bas_size_truncated = aux_bas_tr->get_basis_size(), bas_size = bas_full.get_basis_size(), 
+           ngrid = g.nrad * g.nang;
+
+    std::vector<double> S_mat(aux_int->n1porb * ig.n1porb, 0.0); // Overlap matrix between the auxiliary and full orbital basis
+    for (size_t i = 0; i < aux_int->n1porb; i++) {
+        std::vector<double> aux_tmp(std::next(aux_int->paux_bf.begin(), i * ngrid), std::next(aux_int->paux_bf.begin(), (i + 1) * ngrid)),
+                            overlap_i = ig.expand(aux_tmp);
+        std::copy(overlap_i.begin(), overlap_i.end(), std::next(S_mat.begin(), i * ig.n1porb));
+    }
+
+    // Expand trial state so it is represented in the _full_ basis
+    std::vector<double> trial_state_full(bas_size, 0.0);
+    for (size_t i = 0; i < aux_bas_size_truncated; i++) {
+        // Expand determinant in terms of the determinants
+        // of the bas_full and store the coefficients in trial_state_full
+        size_t i_aux = aux_bas_tr->get_id(i);
+        auto [i_aux_a, i_aux_b ] = aux_bas_full->unpack_str_index(i_aux);
+        auto i_alpha = aux_bas_tr->a(i_aux_a);
+        for (size_t j = 0; j < bas_size; j++) {
+            auto [j_full_a, j_full_b] = bas_full.unpack_str_index(j);
+            auto j_alpha = bas_full.a(j_full_a);
+            size_t &i1_a = i_alpha[0],
+                   &i2_a = i_alpha[1],
+                   &i1_f = j_alpha[0],
+                   &i2_f = j_alpha[1];
+            double s = S_mat[i1_a * ig.n1porb + i1_f] * S_mat[i2_a * ig.n1porb + i2_f] - S_mat[i1_a * ig.n1porb + i2_f] * S_mat[i2_a * ig.n1porb + i1_f];
+            trial_state_full[j] += trial_state[i] * s;
+        }
+    }
+
+    // Check if the trial state full was generated correctly;
+    // 1. It is supposed to be normalized
+    // 2. Average energy coicides with the ground state energy in truncated basis
+
+    double thresh = 1e-10;
+    bool success = true;
+
+    double t_norm = cblas_dnrm2(bas_size, trial_state_full.data(), 1);
+    double av_e = 0.0;
+    for (size_t i = 0; i < bas_size; i++) 
+        for (size_t j = 0; j < bas_size; j++)
+            av_e += trial_state_full[i] * trial_state_full[j] * h_full.matrix(i, j);
+
+    printf("Energy of the trial expanded in the full basis is %18.10f\n", av_e / (t_norm * t_norm));
+    printf("Trial energy from CI is %18.10f\n", trial_e);
+    printf("Norm is %18.10f\n", t_norm);
+
+    for ( size_t idet = 0; idet < bas_size; idet++) {
+        // If a single test fails - testing will stop
+        // Calculate numerator/denominator pair using a standard function
+        auto [n_, d_] = eval(idet);
+        // Calculate numerator/denominator using trial_state_full
+        double n__ = 0.0;
+        double d__ = trial_state_full[idet];
+        auto connected = bas_full.get_neigh(idet);
+        for (auto &nei : connected) {
+            n__ += trial_state_full[nei] * h_full.matrix(nei, idet);
+        }
+        if (abs(n__ - n_) >= thresh) {
+            std::cout << "Numerator test fails for determinant # " << idet << " ! " << std::endl;
+            printf("Numerator from eval is %18.10f\n", n_);
+            printf("Numerator from test_eval2 is %18.10f\n", n__);
+            success = false;
+            break;
+        }
+        if (abs(d__ - d_) >= thresh) {
+            std::cout << "Denominator test fails for determinant # " << idet << " ! "  << std::endl;
+            printf("Denominator from eval is %18.10f\n", d_);
+            printf("Denominator from test_eval2 is %18.10f\n", d__);
+            success = false;
+            break;
+        }
+    }
+
+    return success;
+
 }
 
 MixedBasisEstimator::~MixedBasisEstimator() {

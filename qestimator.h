@@ -38,6 +38,7 @@ class MixedBasisEstimator : public Estimator {
             double calc_overlap1(size_t i_aux, size_t j_full); // Evaluates determinant overlap for a number of special cases
             double calc_overlap2(size_t i_aux, size_t j_full);
             double calc_overlap(size_t i_aux, size_t j_full); // General function for Ne >= 3
+            bool test_eval2(); // Implements a simple test of the eval function for 2e
 
         public:
             MixedBasisEstimator(Params_reader &q, Integral_factory &int_f, Basis &bas);
