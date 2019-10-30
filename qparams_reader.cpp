@@ -84,7 +84,7 @@ void Params_reader::perform() {
         for (auto it = params.begin(); it != params.end(); it++)
             printf(" %s = %8d\n", (it->first).c_str(), it->second);
         for (auto it = dparams.begin(); it != dparams.end(); it++)
-            printf(" %s = %8.3f\n", (it->first).c_str(), it->second);
+            printf(" %s = %20.10f\n", (it->first).c_str(), it->second);
         printf( " ---------------------------------\n");
     } else {
         printf("Failed to find the input file %s... Exiting.\n", input_file.c_str());

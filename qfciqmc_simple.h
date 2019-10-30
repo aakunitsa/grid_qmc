@@ -82,8 +82,12 @@ class Hash_Tree_Det_Lookup {
 
 
 class FCIQMC_simple {
-
+#ifdef MT64
 		typedef std::mt19937_64 random_engine; // Should be defined at compile time; will use this for now
+#endif
+#ifdef MT32
+		typedef std::mt19937 random_engine; // Should be defined at compile time; will use this for now
+#endif
 
     private:
 
@@ -94,6 +98,7 @@ class FCIQMC_simple {
         int m_N_uniq, m_N;
         int m_steps_per_block, m_N_blocks, m_N_equil;
         double m_E_T, m_E_M;
+        bool power_method;
 
 
 		int init_guess_subspace;
@@ -112,6 +117,7 @@ class FCIQMC_simple {
 		// Member functions
 
         void run_block(size_t nsteps = 1, bool equil = false);
+        //void power_iter();
         void initialize(bool uniform = true);
         // Update energy shift; Not used in the present code - is reserved for the production version
         void set_shift(double E_T) { m_E_T = E_T; };

@@ -10,6 +10,7 @@
 #include <chrono>
 #include <gsl/gsl_statistics.h>
 #include <gsl/gsl_rstat.h>
+#include <gsl/gsl_cblas.h>
 #include "omp.h"
 
 
@@ -20,22 +21,30 @@ FCIQMC_simple::FCIQMC_simple(std::map<string, int> &p, std::map<string, double> 
     m_N = p["N"];  // set N to target number specified by user in the input file
     m_N_uniq = 0;
     m_steps_per_block = p["steps_per_block"];
-	m_N_blocks = p["N_blocks"];
-	m_N_equil = int(0.25 * m_N_blocks);
+    m_N_blocks = p["N_blocks"];
+    m_N_equil = p["N_equil"];
+    if (m_N_equil < 0) m_N_equil = int(0.25 * m_N_blocks); // 25 % of the number of blocks by default
 
-	dt = dp["dt"];
-	B = dp["B"];
+    dt = dp["dt"];
+    B = dp["B"];
 
-	// Retrieve information about the basis set & initialize big array to zeros
+    // Retrieve information about the basis set & initialize big array to zeros
     m_walker_ensemble.resize(gb.get_basis_size());
-	std::fill(m_walker_ensemble.begin(), m_walker_ensemble.end(), 0);
+    std::fill(m_walker_ensemble.begin(), m_walker_ensemble.end(), 0);
 
 	// Determine the maximum number of OpenMP threads and set up
 	// appropriate number of random engines
 	int max_threads = omp_get_max_threads(); // Check what would happen by default!!
 	g = new random_engine[max_threads];
+        auto seeding_algorithm = p["seeding_algorithm"];
 	for (int iengine = 0; iengine < max_threads; iengine++) {
+            if (seeding_algorithm == 0) {
+		g[iengine] = Rand_seed<random_engine>(simple).setup_engine();
+            } else if (seeding_algorithm == 1) {
 		g[iengine] = Rand_seed<random_engine>(gnu_fortran).setup_engine();
+            } else {
+		g[iengine] = Rand_seed<random_engine>(sequence, iengine).setup_engine();
+            }
 	}
 
 	// Populate initial walker ensemble
@@ -75,6 +84,8 @@ FCIQMC_simple::FCIQMC_simple(std::map<string, int> &p, std::map<string, double> 
 	spawned.resize(gb.get_basis_size()); 
 	// Temporary
         if (p["save_hamiltonian"] > 0) gh.save_matrix();
+        power_method = p["fciqmc_power_method"] > 0 ? true : false;
+        std::cout << " Power method variable is set " << std::endl;
 
 }
 
@@ -111,9 +122,6 @@ void FCIQMC_simple::initialize (bool uniform) {
 		}
 
 		assert (nwalkers == m_N);
-
-		// I should setup a separate parameter reader for the floating point 
-		// numbers
 
 		m_E_T = min_diag - 0.1, m_E_M = min_diag;  // initial guess for the ground state energy
 		m_N_uniq = 0;
@@ -162,7 +170,7 @@ void FCIQMC_simple::initialize (bool uniform) {
 	std::cout << " Minimum H_ii = " << min_diag << std::endl;
 	std::cout << " Number of walkers = " << m_N << std::endl;
 	std::cout << " Number of unique walkers = " << m_N_uniq << std::endl;
-	printf(" Imaginary time-step = %10.6f\n", dt);
+	printf(" Imaginary time-step = %20.10f\n", dt);
 	printf(" Initial guess for the energy offset = %10.6f\n", m_E_T);
 
 	// Print m_walker_ensemble
@@ -188,18 +196,87 @@ void FCIQMC_simple::run() {
 	// Some parameters
 	if (B < 0)
 		B = 1.0; // default damping parameter for population control
-	// Running statistics (GSL)
-    gsl_rstat_workspace *rstat_m = gsl_rstat_alloc(), *rstat_g = gsl_rstat_alloc();
 
-	printf( ">>>>>>>>> Running FCIQMC calculation of %d threads <<<<<<<<<<\n", omp_get_max_threads());
+        if (power_method) {
 
-	// Starting equilibration run here (dt will not be adjusted)
-    printf( "block #  total pop.  E_m (mixed)  E_g (growth)  <E_m>   <E_g>\n");
-    printf( "=======  ==========  ===========  ============  =====   =====\n");
-    printf( "---------------------- Equilibration run --------------------\n");
-	std::cout.flush();
+            std::cout << "Setting up a power iteration run " << std::endl;
 
-	for (size_t iblock = 0; iblock < m_N_equil; iblock++) {
+            // Calculate the matrix and run power iteration with FCIQMC projector 
+            size_t basis_size = gb.get_basis_size();
+            std::vector<double> P_mat(basis_size * basis_size, 0.0), H_mat(basis_size * basis_size, 0.0);
+            for (size_t i = 0; i < basis_size; i++)
+                for (size_t j = i; j < basis_size; j++) {
+                    double Hij = gh.matrix(i, j);
+                    if (i == j) {
+                        H_mat[i * basis_size + i] = Hij;
+                        P_mat[i * basis_size + i] = 1. + dt * (m_E_T - Hij);
+                    } else {
+                        H_mat[i * basis_size + j] = Hij;
+                        H_mat[j * basis_size + i] = Hij;
+                        P_mat[i * basis_size + j] = -dt * Hij;
+                        P_mat[j * basis_size + i] = -dt * Hij;
+                    }
+
+                }
+
+            std::vector<double> v_old (m_walker_ensemble.begin(), m_walker_ensemble.end()),
+                                v_new (basis_size, 0.0);
+
+            // Normalize v_old
+            {
+                double norm = cblas_dnrm2((int)basis_size, v_old.data(), 1);
+                for (auto &c : v_old) c /= norm;
+            }
+
+            printf( ">>>>>>>>> Running FCIQMC power iteration <<<<<<<<<<\n");
+            printf( "block #   E_m (mixed #1) E_m (mixed #2)  E_r (Reileigh)\n");
+            printf( "=======   ============== ==============  ==============\n");
+            for (size_t iblock = 0; iblock < m_N_blocks; iblock++) {
+                // Iterate
+                cblas_dsymv(CblasRowMajor, CblasUpper, (int)basis_size, 1.0, P_mat.data(), (int)basis_size, v_old.data(), 1, 0.0, v_new.data(), 1);
+                // Normalize
+                double norm = cblas_dnrm2((int)basis_size, v_new.data(), 1);
+                for (auto &c : v_new) c /= norm;
+                // Report
+                // First method
+                auto [e1, e2] = en_proj.eval(v_new);
+                assert (abs(e2) >= 1e-10);
+                double E_first = e1/ e2, E_second = 0.0, num = 0.0, denom =0.0;
+                // Second method
+                for (size_t i = 0; i< basis_size; i++) {
+                    auto [e1_, e2_] = en_proj.eval(i);
+                    num += v_new[i] * e1_;
+                    denom += v_new[i] * e2_;
+                }
+                assert (abs(denom) >= 1e-10);
+                E_second = num/ denom;
+                num = 0.0; denom = 0.0;
+                double E_r = 0.0;
+                for (size_t i = 0; i < basis_size; i++) {
+                    denom += v_new[i] * v_new[i];
+                    for (size_t j = 0; j < basis_size; j++) {
+                        num += v_new[i] * H_mat[i * basis_size + j] * v_new[j];
+                    }
+                }
+                assert (abs(denom) >= 1e-10);
+                E_r = num/denom;
+                printf( "%-7d %-13.6f %-13.6f %-13.6f\n", iblock, E_first, E_second, E_r); 
+                // Copy
+                std::copy(v_new.begin(), v_new.end(), v_old.begin());
+            }
+
+        } else {
+            // Running statistics (GSL)
+            gsl_rstat_workspace *rstat_m = gsl_rstat_alloc(), *rstat_g = gsl_rstat_alloc();
+            printf( ">>>>>>>>> Running FCIQMC calculation of %d threads <<<<<<<<<<\n", omp_get_max_threads());
+
+            // Starting equilibration run here (dt will not be adjusted)
+            printf( "block #  total pop.  E_m (mixed)  E_g (growth)  <E_m>   <E_g>\n");
+            printf( "=======  ==========  ===========  ============  =====   =====\n");
+            printf( "---------------------- Equilibration run --------------------\n");
+            std::cout.flush();
+
+            for (size_t iblock = 0; iblock < m_N_equil; iblock++) {
 		int N_after, N_before = m_N;
 		run_block(m_steps_per_block, true); // The second parameters indicates equilibration
 		N_after = m_N; 
@@ -207,17 +284,17 @@ void FCIQMC_simple::run() {
 			std::cout << "All walkers died! Aborting..." << std::endl; 
 			exit(EXIT_FAILURE);
 		}
-		m_E_T -= B / (m_steps_per_block * dt) * log (double(N_after) / N_before);
-        printf( "%-7d %-10d %-13.6f %-13.6f %-13s %-13s\n", iblock, get_num_total(), m_E_M, m_E_T, "-", "-"); 
-		std::cout.flush();
-	}
+                m_E_T -= B / (m_steps_per_block * dt) * log (double(N_after) / N_before);
+                printf( "%-7d %-10d %-13.6f %-13.6f %-13s %-13s\n", iblock, get_num_total(), m_E_M, m_E_T, "-", "-"); 
+                std::cout.flush();
+            }
 
 	// Production run
 	
-    printf( "---------------------- Production run ------------------------\n");
-	std::cout.flush();
+            printf( "---------------------- Production run ------------------------\n");
+            std::cout.flush();
 
-	for (size_t iblock = 0; iblock < m_N_blocks; iblock++) {
+            for (size_t iblock = 0; iblock < m_N_blocks; iblock++) {
 		int N_after, N_before = m_N;
 		run_block(m_steps_per_block, false);
 		N_after = m_N; 
@@ -226,14 +303,15 @@ void FCIQMC_simple::run() {
 			exit(EXIT_FAILURE);
 		}
 		m_E_T -= B / (m_steps_per_block * dt) * log (double(N_after) / N_before);
-        gsl_rstat_add(m_E_M, rstat_m);
-        gsl_rstat_add(m_E_T, rstat_g);
-        printf( "%-7d %-10d %-13.6f %-13.6f %-13.6f %-13.6f\n", iblock, get_num_total(), m_E_M, m_E_T, gsl_rstat_mean(rstat_m), gsl_rstat_mean(rstat_g)); 
-		std::cout.flush();
-	}
+            gsl_rstat_add(m_E_M, rstat_m);
+            gsl_rstat_add(m_E_T, rstat_g);
+            printf( "%-7d %-10d %-13.6f %-13.6f %-13.6f %-13.6f\n", iblock, get_num_total(), m_E_M, m_E_T, gsl_rstat_mean(rstat_m), gsl_rstat_mean(rstat_g)); 
+            std::cout.flush();
+            }
 
-	gsl_rstat_free(rstat_m);
-	gsl_rstat_free(rstat_g);
+            gsl_rstat_free(rstat_m);
+            gsl_rstat_free(rstat_g);
+    }
 
 
 }
@@ -244,7 +322,8 @@ void FCIQMC_simple::run_block(size_t nsteps, bool equil) {
     int basis_size = int(gb.get_basis_size());
     assert (m_walker_ensemble.size() == basis_size);
     const int N_0 = m_N;
-    uniform_real_distribution<double> u(0.0, 1.0);
+    std::uniform_real_distribution<double> u(0.0, 1.0);
+    std::uniform_int_distribution<int> disp_walker(1, basis_size - 1); // This should be shared among threads
     int total_spawned = 0, anti_creations = 0, total_killed = 0, total_cloned = 0, N = 0, N_pr = 0, N_uniq = 0;
     double e_num = 0.0, e_denom = 0.0;
 
@@ -268,34 +347,27 @@ void FCIQMC_simple::run_block(size_t nsteps, bool equil) {
             int tid = omp_get_thread_num();
 
             const int n_walkers = abs(m_walker_ensemble[i]);
+            const int sign_ref = ( m_walker_ensemble[i] > 0 ? 1 : -1);
             if (n_walkers == 0) continue; // This is important since we are working with a full population vector
             N_pr += n_walkers;
-            auto neigh = gb.get_neigh(i);
-            double sprob = 1. / (neigh.size() - 1); // -1 appears because determinant i is included in the list
-            const int sign_ref = ( m_walker_ensemble[i] > 0 ? 1 : -1);
-            //std::cout << "Doing spawning for walker " << i << std::endl;
-            auto conn = sample_connected(i, n_walkers); 
-            for (auto &j : conn) {
-                
-                // Spawning
+            for (size_t w = 0; w < n_walkers; w++) {
+                size_t j = size_t ((i + disp_walker(g[tid])) % basis_size);
+                //int di;
+//#pragma omp critical
+                //di = disp_walker(g[0]);
+                //size_t j = size_t ((i + di) % basis_size);
                 double h = gh.matrix(i, j);
                 int sign = (h >= 0 ? 1 : -1) * (-1) * sign_ref;
-                double ps = abs(h) * dt / sprob; 
-                //if (ps > 2)
-                //    cout << "ps = " << ps << "!" << endl; 
-
+                double ps = abs(h) * dt * (basis_size - 1); 
                 int survivors = int(ps);
                 if (ps - survivors > u(g[tid])) 
                     survivors++;
-
 		// Add to spawned
                 #pragma omp atomic 
 		total_spawned += survivors;
-
                 #pragma omp atomic
 		spawned[j] += survivors * sign;
             }
-
             //std::cout << "Finished spawning for walker # " << i << endl;
 
             // Birth-death process
@@ -303,16 +375,18 @@ void FCIQMC_simple::run_block(size_t nsteps, bool equil) {
             int nkill = int(abs(rate));
 
             if((abs(rate) - nkill) > u(g[tid])) 
+//            double rn;
+//#pragma omp critical
+//            rn = u(g[0]);
+//            if((abs(rate) - nkill) > rn) 
                 nkill++;
-#ifdef DEBUG
-			#pragma omp critical 
-			{
-				if (abs(rate) / n_walkers  > 2) {
-					std::cout << "Death rate per walker is " << abs(rate) / n_walkers << std::endl;
-					std::cout << "Consider decreasing the time step! " << std::endl;
-				}
-			}
-#endif
+            #pragma omp critical 
+            {
+                if (abs(rate) / n_walkers  > 2) {
+                    std::cout << "Death rate per walker is " << abs(rate) / n_walkers << std::endl;
+                    std::cout << "Consider decreasing the time step! " << std::endl;
+                }
+            }
 
             if (rate >= 0) {
                 int new_unsigned_weight = n_walkers - nkill;
@@ -413,36 +487,6 @@ void FCIQMC_simple::run_block(size_t nsteps, bool equil) {
 
         }
     }
-}
-
-
-std::vector< size_t > FCIQMC_simple::sample_connected(const int &src, int n_samples) {
-
-	std::vector< size_t > sample;
-	auto neigh = gb.get_neigh(src);
-
-	uniform_int_distribution<int> neigh_dist(0, neigh.size() - 1);
-
-	int tid = omp_get_thread_num();
-
-	// I will assume that orbital lists are arranged such that alpha orbitals
-	// preceed beta ones; That ordering applies separately to occupied and 
-	// virtual lists
-
-	for (size_t is = 0; is < n_samples; is++) {
-		bool accepted = false;
-		while(!accepted) {
-			auto index = neigh_dist(g[tid]);
-			if (neigh[index] != src) {
-				accepted = true;
-				sample.push_back(neigh[index]);
-			}
-		}
-	}
-
-	assert (sample.size() == n_samples);
-
-	return sample;
 }
 
 void FCIQMC_simple::save_walkers(fstream &out) {

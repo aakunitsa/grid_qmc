@@ -11,6 +11,7 @@
 #include "qfciqmc_simple.h"
 #include "qintegral.h"
 #include <iostream>
+#include <iomanip>
 #include <algorithm>
 #include <complex>
 #include <chrono>
@@ -277,9 +278,10 @@ size_t n_states = 10;
 			DetBasis basis(q.params, g_int.n1porb);
 			Hamiltonian h_full(g_int, basis);
 			auto d = h_full.build_diagonal();
-			//for (auto d__ : d) 
-			//	std::cout << d__ << '\t';
-			//std::cout << std::endl;
+                        std::cout << std::setprecision(8);
+			for (auto d__ : d) 
+				std::cout << d__ << std::endl;
+			std::cout << std::endl;
 			size_t subspace_size = std::min(basis.get_basis_size(), size_t(q.params["fci_subspace"]));
 			if (subspace_size <= 0) subspace_size = 1; // Probably this would be a terrible estimator but can work
 			TruncatedBasis tr_basis(q.params, g_int.n1porb, subspace_size, d, basis);
@@ -290,12 +292,15 @@ size_t n_states = 10;
 			en.resize(e.size());
 			std::copy(e.begin(), e.end(), en.begin());
 
+                        /*
+
 			std::cout << "Saving projected H " << std::endl;
 			h_proj.save_matrix();
 			std::cout << "Done!" << std::endl;
-
+                        */
 			// Some simple tests of the truncated basis class
 			//
+                        /*
 			std::vector<double> fake_d (basis.get_basis_size());
 			std::iota(fake_d.begin(), fake_d.end(), 0);
 			TruncatedBasis fake_tr_basis(q.params, g_int.n1porb, subspace_size, fake_d, basis);
@@ -309,6 +314,7 @@ size_t n_states = 10;
 				}
 
 			std::cout << "Passed!" << std::endl;
+                        */
 			/*
 			std::cout << "Saving (fake) projected H " << std::endl;
 			fake_h_proj.save_matrix();
@@ -411,6 +417,32 @@ size_t n_states = 10;
                 std::cout << "Setting up a mixed basis estimator" << std::endl;
 		MixedBasisEstimator mb_en(q, g_int, basis);
 		FCIQMC_simple s(q.params, q.dparams, h, basis, mb_en);
+		s.run();
+                std::cout << "Saving the final FCIQMC snapshot to a text file" << std::endl;
+                fstream final_state;
+                final_state.open("FINAL_STATE.DAT", std::ios::out);
+                s.save_walkers(final_state);
+                final_state.close();
+        } else if (q.params["run_type"] == 7) {
+                std::cout << "Setting up grid integrals in main" << std::endl;
+                Grid_integrals g_int(q.params, ss);
+                DetBasis basis(q.params, g_int.n1porb);
+                Hamiltonian h_full(g_int, basis);
+                auto d = h_full.build_diagonal();
+                size_t subspace_size = std::min(basis.get_basis_size(), size_t(q.params["fci_subspace"]));
+                if (subspace_size <= 0) subspace_size = 1; // Probably this would be a terrible estimator but can work
+                TruncatedBasis tr_basis(q.params, g_int.n1porb, subspace_size, d, basis);
+                assert (tr_basis.get_basis_size() == subspace_size);
+                std::cout << "The size of truncated basis is " << subspace_size << std::endl; 
+                Hamiltonian h_proj(g_int, tr_basis);
+                {
+                    auto e = h_proj.diag(false);
+                    printf("The ground state energy of projected Hamiltonian is %13.8f\n", e[0]);
+                }
+                std::cout << "Setting up a projected estimator" << std::endl;
+		ProjEstimator proj_en(q.params, g_int, tr_basis);
+                std::cout << "Starting FCIQMC in truncated basis set" << std::endl;
+		FCIQMC_simple s(q.params, q.dparams, h_proj, tr_basis, proj_en);
 		s.run();
         } else if (q.params["run_type"] == 100) {
             // Will assign this run type to all sorts of tests

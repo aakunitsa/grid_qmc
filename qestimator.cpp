@@ -73,11 +73,13 @@ MixedBasisEstimator::MixedBasisEstimator(Params_reader &q, Integral_factory &int
 
     //std::cout << "Done calculating the overlap" << std::endl;
     auto [na , nb ] = bas_full.get_ab();
+    /*
     if (nel == 2 && nb == 0) {
         // nb == 0 for simplicity
         std::cout << "Testing eval..." << std::endl;
         if (test_eval2()) std::cout << "Done!" << std::endl;
     }
+    */
 }
 
 bool MixedBasisEstimator::test_eval2() {

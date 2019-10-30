@@ -5,6 +5,7 @@
 #include "qintegral.h"
 #include "qgrid.h"
 #include <map>
+#include <unordered_map>
 #include <string>
 #include <vector>
 
@@ -223,6 +224,8 @@ class Hamiltonian {
 		Integral_factory &ig; // Integral generator
 		Basis &bas;
 
+                //std::unordered_map<int, double> saved_H; // Will be implemented later
+
 		// Davidson solver parameters
 		
 		std::vector< double > H_diag, gs_wfn; // ground state wave function
@@ -234,6 +237,7 @@ class Hamiltonian {
 
                 //std::tuple< std::vector<double>, std::vector<double> > compute_1rdm();
 
+                //void read_matrix(); // Will be implemented later
 };
 
 #endif
