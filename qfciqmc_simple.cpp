@@ -7,6 +7,7 @@
 #include <cstdio>
 #include <cassert>
 #include <iostream>
+#include <iomanip>
 #include <chrono>
 #include <gsl/gsl_statistics.h>
 #include <gsl/gsl_rstat.h>
@@ -42,8 +43,12 @@ FCIQMC_simple::FCIQMC_simple(std::map<string, int> &p, std::map<string, double> 
 		g[iengine] = Rand_seed<random_engine>(simple).setup_engine();
             } else if (seeding_algorithm == 1) {
 		g[iengine] = Rand_seed<random_engine>(gnu_fortran).setup_engine();
-            } else {
+            } else if (seeding_algorithm == 2){
 		g[iengine] = Rand_seed<random_engine>(sequence, iengine).setup_engine();
+            } else {
+                int seed = chrono::system_clock::now().time_since_epoch().count();
+                g[iengine] = random_engine(seed);
+                std::cout << " Seed for thread # " << iengine << " is " << seed << std::endl;
             }
 	}
 
@@ -84,6 +89,7 @@ FCIQMC_simple::FCIQMC_simple(std::map<string, int> &p, std::map<string, double> 
 	spawned.resize(gb.get_basis_size()); 
 	// Temporary
         if (p["save_hamiltonian"] > 0) gh.save_matrix();
+        debug = p["fciqmc_debug_mode"] > 0 ? true : false;
         power_method = p["fciqmc_power_method"] > 0 ? true : false;
         std::cout << " Power method variable is set " << std::endl;
 
@@ -278,7 +284,7 @@ void FCIQMC_simple::run() {
 
             for (size_t iblock = 0; iblock < m_N_equil; iblock++) {
 		int N_after, N_before = m_N;
-		run_block(m_steps_per_block, true); // The second parameters indicates equilibration
+		run_block(m_steps_per_block, true, debug); // The second parameters indicates equilibration
 		N_after = m_N; 
 		if (N_after == 0) {
 			std::cout << "All walkers died! Aborting..." << std::endl; 
@@ -296,7 +302,7 @@ void FCIQMC_simple::run() {
 
             for (size_t iblock = 0; iblock < m_N_blocks; iblock++) {
 		int N_after, N_before = m_N;
-		run_block(m_steps_per_block, false);
+		run_block(m_steps_per_block, false, debug);
 		N_after = m_N; 
 		if (N_after == 0) {
 			std::cout << "All walkers died! Aborting..." << std::endl; 
@@ -317,7 +323,7 @@ void FCIQMC_simple::run() {
 }
 
 
-void FCIQMC_simple::run_block(size_t nsteps, bool equil) {
+void FCIQMC_simple::run_block(size_t nsteps, bool equil, bool debug_mode) {
 
     int basis_size = int(gb.get_basis_size());
     assert (m_walker_ensemble.size() == basis_size);
@@ -326,6 +332,18 @@ void FCIQMC_simple::run_block(size_t nsteps, bool equil) {
     std::uniform_int_distribution<int> disp_walker(1, basis_size - 1); // This should be shared among threads
     int total_spawned = 0, anti_creations = 0, total_killed = 0, total_cloned = 0, N = 0, N_pr = 0, N_uniq = 0;
     double e_num = 0.0, e_denom = 0.0;
+
+    std::stringstream int_rand_nums, double_rand_nums, double_rand_nums1;
+    double_rand_nums << std::setw(20) << std::setprecision(10);
+    double_rand_nums1 << std::setw(20) << std::setprecision(10);
+
+    if (debug_mode) {
+        int_rand_nums << " Determinant occupation numbers: " << std::endl;
+        for (size_t i = 0; i < basis_size; i++) {
+            int_rand_nums << m_walker_ensemble[i] << std::endl;
+        }
+        int_rand_nums << " *** End of determinant occupation numbers *** " << std::endl;
+    }
 
 #ifdef DEBUG
     clock_t t0 = clock();
@@ -348,25 +366,47 @@ void FCIQMC_simple::run_block(size_t nsteps, bool equil) {
 
             const int n_walkers = abs(m_walker_ensemble[i]);
             const int sign_ref = ( m_walker_ensemble[i] > 0 ? 1 : -1);
-            if (n_walkers == 0) continue; // This is important since we are working with a full population vector
+            if (n_walkers == 0 && !debug_mode) continue; // This is important since we are working with a full population vector
             N_pr += n_walkers;
-            for (size_t w = 0; w < n_walkers; w++) {
-                size_t j = size_t ((i + disp_walker(g[tid])) % basis_size);
-                //int di;
-//#pragma omp critical
-                //di = disp_walker(g[0]);
-                //size_t j = size_t ((i + di) % basis_size);
-                double h = gh.matrix(i, j);
-                int sign = (h >= 0 ? 1 : -1) * (-1) * sign_ref;
-                double ps = abs(h) * dt * (basis_size - 1); 
-                int survivors = int(ps);
-                if (ps - survivors > u(g[tid])) 
-                    survivors++;
-		// Add to spawned
-                #pragma omp atomic 
-		total_spawned += survivors;
-                #pragma omp atomic
-		spawned[j] += survivors * sign;
+            if (debug_mode) {
+                for (size_t w = 0; w < n_walkers; w++) {
+                    auto di = disp_walker(g[tid]);
+                    int_rand_nums << di << std::endl;
+                    size_t j = size_t ((i + di) % basis_size);
+                    double h = gh.matrix(i, j);
+                    int sign = (h >= 0 ? 1 : -1) * (-1) * sign_ref;
+                    double ps = abs(h) * dt * (basis_size - 1); 
+                    int survivors = int(ps);
+                    double rn = u(g[tid]);
+                    double_rand_nums << rn << std::endl;
+                    if (ps - survivors > rn) 
+                        survivors++;
+                    // Add to spawned
+                    #pragma omp atomic 
+                    total_spawned += survivors;
+                    #pragma omp atomic
+                    spawned[j] += survivors * sign;
+                }
+
+            } else {
+                for (size_t w = 0; w < n_walkers; w++) {
+                    size_t j = size_t ((i + disp_walker(g[tid])) % basis_size);
+                    //int di;
+                    //#pragma omp critical
+                    //di = disp_walker(g[0]);
+                    //size_t j = size_t ((i + di) % basis_size);
+                    double h = gh.matrix(i, j);
+                    int sign = (h >= 0 ? 1 : -1) * (-1) * sign_ref;
+                    double ps = abs(h) * dt * (basis_size - 1); 
+                    int survivors = int(ps);
+                    if (ps - survivors > u(g[tid])) 
+                        survivors++;
+                    // Add to spawned
+                    #pragma omp atomic 
+                    total_spawned += survivors;
+                    #pragma omp atomic
+                    spawned[j] += survivors * sign;
+                }
             }
             //std::cout << "Finished spawning for walker # " << i << endl;
 
@@ -374,12 +414,19 @@ void FCIQMC_simple::run_block(size_t nsteps, bool equil) {
             double rate = dt * (gh.matrix(i, i) - m_E_T) * n_walkers;
             int nkill = int(abs(rate));
 
-            if((abs(rate) - nkill) > u(g[tid])) 
-//            double rn;
-//#pragma omp critical
-//            rn = u(g[0]);
-//            if((abs(rate) - nkill) > rn) 
-                nkill++;
+            if (debug_mode) {
+                double rn = u(g[tid]);
+                double_rand_nums1 << rn << std::endl;
+                if((abs(rate) - nkill) > rn) 
+                    nkill++;
+            } else {
+                if((abs(rate) - nkill) > u(g[tid])) 
+    //            double rn;
+    //#pragma omp critical
+    //            rn = u(g[0]);
+    //            if((abs(rate) - nkill) > rn) 
+                    nkill++;
+            }
             #pragma omp critical 
             {
                 if (abs(rate) / n_walkers  > 2) {
@@ -486,6 +533,14 @@ void FCIQMC_simple::run_block(size_t nsteps, bool equil) {
 
 
         }
+    }
+    if (debug_mode) {
+        std::cout << " Lists of random numbers generated when running the block (valid only if run with one thread) " << std::endl;
+        std::cout << int_rand_nums.str() << std::endl;
+        std::cout << double_rand_nums.str() << std::endl;
+        std::cout << "Second batch of doubles (for diagonal step)" << std::endl;
+        std::cout << double_rand_nums1.str() << std::endl;
+        std::cout << " ******************************************************************************************** " << std::endl;
     }
 }
 

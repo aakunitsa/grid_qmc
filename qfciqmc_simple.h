@@ -99,6 +99,7 @@ class FCIQMC_simple {
         int m_steps_per_block, m_N_blocks, m_N_equil;
         double m_E_T, m_E_M;
         bool power_method;
+        bool debug;
 
 
 		int init_guess_subspace;
@@ -116,7 +117,7 @@ class FCIQMC_simple {
 
 		// Member functions
 
-        void run_block(size_t nsteps = 1, bool equil = false);
+        void run_block(size_t nsteps = 1, bool equil = false, bool debug = false);
         //void power_iter();
         void initialize(bool uniform = true);
         // Update energy shift; Not used in the present code - is reserved for the production version

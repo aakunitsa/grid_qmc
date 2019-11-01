@@ -21,7 +21,7 @@ class Params_reader {
                                    {"mult", 1}, {"nang", 6}, {"nrad", 5}, {"L_max", 0}, {"read_orb_file", 0},
 	                           {"run_type", 0}, {"steps_per_block", 5}, {"N_blocks", 1000}, {"N_equil", -1}, {"fci_subspace", -1}, 
                                    {"max_cache_size", 0}, {"save_hamiltonian", 0}, {"fciqmc_power_method", 0},
-				   {"fciqmc_projection_subspace", -1}, {"fciqmc_guess_subspace", -1}, {"fciqmc_save_vector", 0},
+				   {"fciqmc_projection_subspace", -1}, {"fciqmc_guess_subspace", -1}, {"fciqmc_save_vector", 0}, {"fciqmc_debug_mode", 1},
                                    {"seeding_algorithm", 1}};
         // Random seed: 0 - simple, 1- gnu_fortran, 2- sequence
 
