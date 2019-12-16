@@ -42,7 +42,7 @@ a sequence of commands
  make
 ```
 
-If you want to used OpenMP features prepend the first line with *-DUSE_OPENMP*. 
+If you want to used OpenMP features prepend the first line with *-DUSE_OPENMP=ON*. 
 If CMake has trouble finding GSL on your system its location can be specified by
 setting *GSL_ROOT_DIR*
 

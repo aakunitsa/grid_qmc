@@ -21,34 +21,59 @@ find_package(GSL REQUIRED)
 add_definitions(-DMT64 -DARMA_DONT_USE_WRAPPER -DNORMAL_POLYMER1)
 
 option(USE_OPENMP "Enable OpenMP feartures if an OpenMP implementation is installed" OFF)
+option(USE_MPi "Enable MPI feartures if an MPI implementation is installed" OFF)
 
 #include(FortranCInterface)
 #FortranCInterface_VERIFY()
 
-add_executable(grid_qmc "")
+add_executable(grid_qmc.x "")
 
-target_sources(grid_qmc
+set(optional_sources "")
+
+# Some optional features
+
+if(USE_OPENMP)
+	find_package(OpenMP REQUIRED)
+        #	target_link_libraries(grid_qmc 
+        #	PUBLIC
+        #	OpenMP::OpenMP_CXX
+        set(CMAKE_EXE_LINKER_FLAGS  "${CMAKE_EXE_LINKER_FLAGS} -lgomp"
+	)
+endif()
+
+if(USE_MPI)
+    find_package(MPI REQUIRED)
+    target_link_libraries(grid_qmc.x
+        PUBLIC
+        MPI::MPI_CXX
+        )
+    set(optional_sources "${CMAKE_CURRENT_SOURCE_DIR}/qfciqmc_mpi.cpp")
+    add_definitions("-DUSE_MPI")
+endif()
+
+target_sources(grid_qmc.x
   PRIVATE
     qgrid.cpp
     qmain.cpp
 	#    qmethods.cpp
     qparams_reader.cpp
     qpoisson.cpp
-	qestimator.cpp
-	qfciqmc_simple.cpp
-	qhamiltonian.cpp
-	qintegral.cpp
+    qestimator.cpp
+    qfciqmc_simple.cpp
+    qhamiltonian.cpp
+    qintegral.cpp
+    ${optional_sources}
   )
 
 
-target_link_libraries(grid_qmc
+target_link_libraries(grid_qmc.x
   PRIVATE
     poisson_solver
 	utils
 	lebedev_grid
   )
 
-target_include_directories(grid_qmc 
+target_include_directories(grid_qmc.x
 	PUBLIC 
 	${ARMADILLO_INCLUDE_DIRS}
 	${CMAKE_CURRENT_SOURCE_DIR}
@@ -56,24 +81,15 @@ target_include_directories(grid_qmc
 	${GSL_INCLUDE_DIRS}
 	)
 
-target_link_libraries(grid_qmc 
+target_link_libraries(grid_qmc.x
 	PUBLIC
 	${ARMADILLO_LIBRARIES}
 	${GSL_LIBRARIES}
 	#	xtensor
 	)
 
-# Some optional features
 
-if(USE_OPENMP)
-	find_package(OpenMP REQUIRED)
-	target_link_libraries(grid_qmc 
-		PUBLIC
-		OpenMP::OpenMP_CXX
-	)
-endif()
-
-set_target_properties(grid_qmc
+set_target_properties(grid_qmc.x
     PROPERTIES
 	LINKER_LANGUAGE CXX)
 

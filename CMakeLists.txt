@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.13)
-project(grid_qmc LANGUAGES CXX C Fortran)
+project(grid_qmc LANGUAGES CXX Fortran)
 
 set(CMAKE_CXX_STANDARD 17)
-#set(CMAKE_VERBOSE_MAKEFILE On)
+set(CMAKE_VERBOSE_MAKEFILE On)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 

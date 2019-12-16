@@ -9,6 +9,9 @@
 #include "qsystem.h"
 #include "qgrid.h"
 #include "qfciqmc_simple.h"
+#ifdef USE_MPI
+#include "qfciqmc_mpi.h"
+#endif
 #include "qintegral.h"
 #include <iostream>
 #include <iomanip>
@@ -22,11 +25,16 @@
 
 int main(int argc, char **argv) {
 
+#ifdef USE_MPI
+    MPI_Init(&argc, &argv);
+    int me, nproc;
+    MPI_Comm_rank(MPI_COMM_WORLD, &me);
+    MPI_Comm_size(MPI_COMM_WORLD, &nproc);
+#endif
 	// Read the input file
 
     Params_reader q(argc, argv);
     q.perform();
-
 
     /*
     if (q.params["mult"] == 1) {
@@ -49,23 +57,23 @@ int main(int argc, char **argv) {
     //l.test_laplacian();
     //Coulomb R12(q.params);
     //R12.test_coulomb();
-	//R12.test_against_poisson(2);
-	//Poisson_solver qp(q.params);
-	//qp.test_poisson();
-	//qp.test_stencil();
-	//qp.test_against_poly();
-	//qp.test_second_deriv();
-	//qp.test_second_deriv2();
-	//qp.test_second_deriv3();
+    //R12.test_against_poisson(2);
+    //Poisson_solver qp(q.params);
+    //qp.test_poisson();
+    //qp.test_stencil();
+    //qp.test_against_poly();
+    //qp.test_second_deriv();
+    //qp.test_second_deriv2();
+    //qp.test_second_deriv3();
     
     // Tests of Hamiltonian and matrix element evaluation subroutines
 	
-	// Create a shellset first
+    // Create a shellset first
 	
-	ShellSet ss(size_t(q.params["L_max"])); // Lmax is 0 by default
+    ShellSet ss(size_t(q.params["L_max"])); // Lmax is 0 by default
     Becke_grid gr(q.params);
 
-	// Only run this for hydrogen atom for now
+    // Only run this for hydrogen atom for now
 	
     //std::cout << " Diagonalizing Hamiltonian for atom with nuclear charge " << q.params["Z"] << " with " 
     //          << q.params["electrons"] << " electrons " <<  std::endl;
@@ -247,6 +255,7 @@ Timing ce_ref function
 Time 169.911 s
 */
 
+#ifndef USE_MPI
 size_t n_states = 10;
 
     if (q.params["run_type"] == 0) {
@@ -455,6 +464,51 @@ size_t n_states = 10;
                 // Calculate some integrals
                 h.save_matrix();
         }
+
+#else
+
+	if (q.params["run_type"] == 2) {
+            if (me == 0) std::cout << "Setting up grid integrals in main" << std::endl;
+                Grid_integrals g_int(q.params, ss);
+		DetBasis basis(q.params, g_int.n1porb);
+                Hamiltonian h(g_int, basis);
+		ProjEstimator proj_en(q.params, g_int, basis);
+		FCIQMC_mpi s(q.params, q.dparams, h, basis, proj_en);
+		s.run();
+	} if (q.params["run_type"] == 4) {
+            // Run FCIQMC in auxiliary basis
+            if (me == 0) std::cout << "Setting up auxliliary basis integrals in main" << std::endl;
+                Aux_integrals  aux_int(q, ss); // Note that it uses params_reader (since it may need orbital file name)
+            if (me == 0) std::cout << "FCIQMC in auxiliary basis" << std::endl;
+		DetBasis basis(q.params, aux_int.n1porb);
+		Hamiltonian h(aux_int, basis);
+                auto e = h.diag(false);
+            if (me == 0) printf("The ground state energy for the full Hamiltonian is %13.6f\n", *std::min(e.begin(), e.end()));
+		ProjEstimator proj_en(q.params, aux_int, basis);
+		FCIQMC_mpi s(q.params, q.dparams, h, basis, proj_en);
+		s.run();
+        }  if (q.params["run_type"] == 6) {
+            if (me == 0) std::cout << "Setting up grid integrals in main" << std::endl;
+                Grid_integrals g_int(q.params, ss);
+		DetBasis basis(q.params, g_int.n1porb);
+                Hamiltonian h(g_int, basis);
+            if (me == 0) std::cout << "Setting up a mixed basis estimator" << std::endl;
+		MixedBasisEstimator mb_en(q, g_int, basis);
+		FCIQMC_mpi s(q.params, q.dparams, h, basis, mb_en);
+		s.run();
+                /*
+                // This needs to be redisigned in order to be compatible with the MPI implementation of FCIQMC
+                std::cout << "Saving the final FCIQMC snapshot to a text file" << std::endl;
+                fstream final_state;
+                final_state.open("FINAL_STATE.DAT", std::ios::out);
+                s.save_walkers(final_state);
+                final_state.close();
+                */
+        } 
+
+    MPI_Finalize();
+
+#endif
 
     return 0;
 
