@@ -22,8 +22,8 @@ add_definitions(-DMT64 -DARMA_DONT_USE_WRAPPER -DNORMAL_POLYMER1)
 
 option(USE_OPENMP "Enable OpenMP feartures if an OpenMP implementation is installed" OFF)
 
-include(FortranCInterface)
-FortranCInterface_VERIFY()
+#include(FortranCInterface)
+#FortranCInterface_VERIFY()
 
 add_executable(grid_qmc "")
 
