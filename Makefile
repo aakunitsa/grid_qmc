@@ -1,4 +1,4 @@
-include config_gellmann.mk
+include config_linux.mk
 
 MF = Makefile
 CC = g++

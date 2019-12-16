@@ -68,7 +68,7 @@ class ProjEstimator : public Estimator {
 			std::copy(v.begin(), v.end(), trial_state.begin());
                     }
                     printf("Energy of the trial function inside ProjEstimator is %13.6f\n", trial_e);
-		    printf("Basis size inside ProjEstimator is %d\n", tr_basis->get_basis_size());
+		    printf("Basis size inside ProjEstimator is %zu\n", tr_basis->get_basis_size());
 		}
 		std::tuple<double, double>  eval(std::vector<double> &wf) {
 		   	// Full w.f. version

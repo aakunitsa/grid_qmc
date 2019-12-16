@@ -35,7 +35,11 @@ FCIQMC_simple::FCIQMC_simple(std::map<string, int> &p, std::map<string, double> 
 
 	// Determine the maximum number of OpenMP threads and set up
 	// appropriate number of random engines
+#ifdef _OPENMP
 	int max_threads = omp_get_max_threads(); // Check what would happen by default!!
+#else
+	int max_threads = 1;
+#endif
 	g = new random_engine[max_threads];
         auto seeding_algorithm = p["seeding_algorithm"];
 	for (int iengine = 0; iengine < max_threads; iengine++) {
@@ -108,8 +112,12 @@ void FCIQMC_simple::initialize (bool uniform) {
 		{
 			#pragma omp for schedule(static) 
 			for (int n = 0; n < m_N; n++) {
+#ifdef _OPENMP
 				int tid = omp_get_thread_num();
 				int idx = init_distr(g[tid]);
+#else
+				int idx = init_distr(g[0]);
+#endif
 				#pragma omp critical
 				{
 					m_walker_ensemble[idx] += 1;
@@ -151,8 +159,12 @@ void FCIQMC_simple::initialize (bool uniform) {
         //std::default_random_engine generator (seed);
 #pragma omp parallel for
 		for (int i = 0; i < m_N; i++) {
+#ifdef _OPENMP
 			int tid = omp_get_thread_num();
 			int tr_det = init_distr2(g[tid]);
+#else
+			int tr_det = init_distr2(g[0]);
+#endif
 			int sign = guess_wfn[tr_det] > 0 ? 1 : -1;
 #pragma omp critical 
 			{
@@ -266,7 +278,7 @@ void FCIQMC_simple::run() {
                 }
                 assert (abs(denom) >= 1e-10);
                 E_r = num/denom;
-                printf( "%-7d %-13.6f %-13.6f %-13.6f\n", iblock, E_first, E_second, E_r); 
+                printf( "%-7zu %-13.6f %-13.6f %-13.6f\n", iblock, E_first, E_second, E_r); 
                 // Copy
                 std::copy(v_new.begin(), v_new.end(), v_old.begin());
             }
@@ -274,7 +286,11 @@ void FCIQMC_simple::run() {
         } else {
             // Running statistics (GSL)
             gsl_rstat_workspace *rstat_m = gsl_rstat_alloc(), *rstat_g = gsl_rstat_alloc();
-            printf( ">>>>>>>>> Running FCIQMC calculation of %d threads <<<<<<<<<<\n", omp_get_max_threads());
+			int nthreads = 1;
+#ifdef _OPENMP
+			nthreads = omp_get_max_threads();
+#endif
+            printf( ">>>>>>>>> Running FCIQMC calculation of %d threads <<<<<<<<<<\n", nthreads);
 
             // Starting equilibration run here (dt will not be adjusted)
             printf( "block #  total pop.  E_m (mixed)  E_g (growth)  <E_m>   <E_g>\n");
@@ -291,7 +307,7 @@ void FCIQMC_simple::run() {
 			exit(EXIT_FAILURE);
 		}
                 m_E_T -= B / (m_steps_per_block * dt) * log (double(N_after) / N_before);
-                printf( "%-7d %-10d %-13.6f %-13.6f %-13s %-13s\n", iblock, get_num_total(), m_E_M, m_E_T, "-", "-"); 
+                printf( "%-7zu %-10d %-13.6f %-13.6f %-13s %-13s\n", iblock, get_num_total(), m_E_M, m_E_T, "-", "-"); 
                 std::cout.flush();
             }
 
@@ -311,7 +327,7 @@ void FCIQMC_simple::run() {
 		m_E_T -= B / (m_steps_per_block * dt) * log (double(N_after) / N_before);
             gsl_rstat_add(m_E_M, rstat_m);
             gsl_rstat_add(m_E_T, rstat_g);
-            printf( "%-7d %-10d %-13.6f %-13.6f %-13.6f %-13.6f\n", iblock, get_num_total(), m_E_M, m_E_T, gsl_rstat_mean(rstat_m), gsl_rstat_mean(rstat_g)); 
+            printf( "%-7zu %-10d %-13.6f %-13.6f %-13.6f %-13.6f\n", iblock, get_num_total(), m_E_M, m_E_T, gsl_rstat_mean(rstat_m), gsl_rstat_mean(rstat_g)); 
             std::cout.flush();
             }
 
@@ -361,8 +377,11 @@ void FCIQMC_simple::run_block(size_t nsteps, bool equil, bool debug_mode) {
 
         #pragma omp for schedule(dynamic) reduction(+:anti_creations,total_spawned,total_cloned,total_killed, N_pr)
         for (int i = 0; i < basis_size; i++) {
-
+#ifdef _OPENMP
             int tid = omp_get_thread_num();
+#else
+			int tid = 0;
+#endif
 
             const int n_walkers = abs(m_walker_ensemble[i]);
             const int sign_ref = ( m_walker_ensemble[i] > 0 ? 1 : -1);

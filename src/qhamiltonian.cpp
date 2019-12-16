@@ -81,7 +81,7 @@ void DetBasis::build_basis() {
             alpha_str.push_back(l);
         } while (gsl_combination_next(c) == GSL_SUCCESS);
         gsl_combination_free(c);
-        printf("Generated %5d alpha strings\n", alpha_str.size());
+        printf("Generated %5zu alpha strings\n", alpha_str.size());
 		printf("Checking strings... ");
 
 		for (const auto &s : alpha_str )
@@ -115,7 +115,7 @@ void DetBasis::build_basis() {
             beta_str.push_back(l);
         } while (gsl_combination_next(c) == GSL_SUCCESS);
         gsl_combination_free(c);
-        printf("Generated %5d beta strings\n", beta_str.size());
+        printf("Generated %5zu beta strings\n", beta_str.size());
 		printf("Checking strings... ");
 
 		for (const auto &s : beta_str )

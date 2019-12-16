@@ -506,12 +506,16 @@ double Aux_integrals::ce(size_t i_, size_t j_, size_t k_, size_t l_) {
 
 */
 	double i_ijkl = eri_fortran_(&paux_bf[i * ngrid], &paux_bf[j * ngrid], &paux_bf[k * ngrid], &paux_bf[l * ngrid]); 
+#ifdef _OPENMP
         if (omp_in_parallel()) {
             #pragma omp critical
             if (cached_eri.size() < max_cache_size) cached_eri.insert(std::make_pair(eri_idx, i_ijkl));
         } else {
             if (cached_eri.size() < max_cache_size) cached_eri.insert(std::make_pair(eri_idx, i_ijkl));
         }
+#else
+        if (cached_eri.size() < max_cache_size) cached_eri.insert(std::make_pair(eri_idx, i_ijkl));
+#endif
 
 	// Will use Poisson solver to generate integrals
 	// This is not practical for larger scale calculations; here I decided to try that for testing 
@@ -903,13 +907,17 @@ double Grid_integrals::ce(size_t i, size_t j, size_t k, size_t l) {
 		i_ijkl += phase * weight * r12.eval_simple(g.r[ir], g.r[kr], oset[0], oset[1], oset[2], oset[3]);
 
 	}
-
+#ifdef _OPENMP
         if (omp_in_parallel()) {
             #pragma omp critical
             if (cached_eri.size() < max_cache_size) cached_eri.insert(std::make_pair(eri_idx_cached, std::real(i_ijkl)));
         } else {
             if (cached_eri.size() < max_cache_size) cached_eri.insert(std::make_pair(eri_idx_cached, std::real(i_ijkl)));
         }
+#else 
+            if (cached_eri.size() < max_cache_size) cached_eri.insert(std::make_pair(eri_idx_cached, std::real(i_ijkl)));
+#endif
+
 
 	//return r12.eval_simple(g.r[ir], g.r[kr], ss.aorb[iorb], ss.aorb[jorb], ss.aorb[korb], ss.aorb[lorb]);
 	return std::real(i_ijkl);

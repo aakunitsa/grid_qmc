@@ -1,6 +1,7 @@
 #include "qgrid.h"
 #include "qorbitals.h"
-#include "lebedev_grid/sphere_lebedev_rule.hpp"
+//#include "lebedev_grid/sphere_lebedev_rule.hpp"
+#include "sphere_lebedev_rule.hpp"
 #include <assert.h>
 #include <numeric>
 #include <algorithm>
@@ -142,7 +143,7 @@ void Becke_grid::test_grid() {
         double norm = 0.0;
         for (size_t j = 0; j < nrad; j++) 
             norm += R(1.0, i + 1, i, r[j]) * gridw_r[j];
-        printf("Norm ( %d ) = %13.6f \n", i + 1, norm);
+        printf("Norm ( %zu ) = %13.6f \n", i + 1, norm);
     }
     */
 
@@ -402,7 +403,7 @@ double Coulomb::eval_simple_wo_selection(double &r1, double &r2, LM &lm1, LM &lm
             double w3j_val = gsl_pow_int(-1.0, -m - M1 - M3), tol = 1e-10;
             bool accurate = true;
 
-            //printf("Attempting to calculate %d %d %d %d %d %d...\n", L1, L2, l, 0, 0, 0);
+            //printf("Attempting to calculate %zu %d %d %d %d %d...\n", L1, L2, l, 0, 0, 0);
             int status = gsl_sf_coupling_3j_e(2*L1, 2*L2, 2*l, 0, 0, 0, &w3j_sym);
             accurate = accurate && (abs(w3j_sym.err) < tol);
             w3j_val *= w3j_sym.val;
@@ -502,7 +503,7 @@ void Coulomb::test_coulomb() {
                d3 = eval_simple_wo_selection(r1, r2, o1, o2, o3, o4);
 
         if ( abs(d3 - d2) > tol ) {
-            printf("Test # %d\n", i);
+            printf("Test # %zu\n", i);
             printf("Legend: \n");
             printf("o1 corresponds to (%d, %d)\n", o1.L, o1.M);
             printf("o2 corresponds to (%d, %d)\n", o2.L, o2.M);
@@ -512,21 +513,21 @@ void Coulomb::test_coulomb() {
 
             printf("coupling (%d %d,%d %d|%d %d, %d %d) (simple algorithm) = %18.10f \n", o1.L, o1.M, o2.L, o2.M, o3.L, o3.M, o4.L, o4.M, d3);
             printf("coupling (%d %d,%d %d|%d %d, %d %d) (direct) = %18.10f \n", o1.L, o1.M, o2.L, o2.M, o3.L, o3.M, o4.L, o4.M, d2);
-            printf("%d %d | %d %d\n", ss.orb_id(o1), ss.orb_id(o2), ss.orb_id(o3), ss.orb_id(o4));
+            printf("%zu %zu | %zu %zu\n", ss.orb_id(o1), ss.orb_id(o2), ss.orb_id(o3), ss.orb_id(o4));
             print_vector(eval_coupling(o1, o2, o3, o4));
-            printf("%d %d | %d %d\n", ss.orb_id(o2), ss.orb_id(o1), ss.orb_id(o3), ss.orb_id(o4));
+            printf("%zu %zu | %zu %zu\n", ss.orb_id(o2), ss.orb_id(o1), ss.orb_id(o3), ss.orb_id(o4));
             print_vector(eval_coupling(o2, o1, o3, o4));
-            printf("%d %d | %d %d\n", ss.orb_id(o1), ss.orb_id(o2), ss.orb_id(o4), ss.orb_id(o3));
+            printf("%zu %zu | %zu %zu\n", ss.orb_id(o1), ss.orb_id(o2), ss.orb_id(o4), ss.orb_id(o3));
             print_vector(eval_coupling(o1, o2, o4, o3));
-            printf("%d %d | %d %d\n", ss.orb_id(o2), ss.orb_id(o1), ss.orb_id(o4), ss.orb_id(o3));
+            printf("%zu %zu | %zu %zu\n", ss.orb_id(o2), ss.orb_id(o1), ss.orb_id(o4), ss.orb_id(o3));
             print_vector(eval_coupling(o2, o1, o4, o3));
-            printf("%d %d | %d %d\n", ss.orb_id(o3), ss.orb_id(o4), ss.orb_id(o1), ss.orb_id(o2));
+            printf("%zu %zu | %zu %zu\n", ss.orb_id(o3), ss.orb_id(o4), ss.orb_id(o1), ss.orb_id(o2));
             print_vector(eval_coupling(o3, o4, o1, o2));
-            printf("%d %d | %d %d\n", ss.orb_id(o4), ss.orb_id(o3), ss.orb_id(o1), ss.orb_id(o2));
+            printf("%zu %zu | %zu %zu\n", ss.orb_id(o4), ss.orb_id(o3), ss.orb_id(o1), ss.orb_id(o2));
             print_vector(eval_coupling(o4, o3, o1, o2));
-            printf("%d %d | %d %d\n", ss.orb_id(o3), ss.orb_id(o4), ss.orb_id(o2), ss.orb_id(o1));
+            printf("%zu %zu | %zu %zu\n", ss.orb_id(o3), ss.orb_id(o4), ss.orb_id(o2), ss.orb_id(o1));
             print_vector(eval_coupling(o3, o4, o2, o1));
-            printf("%d %d | %d %d\n", ss.orb_id(o4), ss.orb_id(o3), ss.orb_id(o2), ss.orb_id(o1));
+            printf("%zu %zu | %zu %zu\n", ss.orb_id(o4), ss.orb_id(o3), ss.orb_id(o2), ss.orb_id(o1));
             print_vector(eval_coupling(o4, o3, o2, o1));
         LM &p1lm1 = (ss.orb_id(o1) <= ss.orb_id(o2)) ? o1 : o2,
            &p1lm2 = (ss.orb_id(o1) <= ss.orb_id(o2)) ? o2 : o1,
@@ -597,7 +598,7 @@ void Coulomb::test_against_poisson(size_t L_max4test) {
 		std::cout << " Test # " << i << std::endl;
 
 		double eri_coulomb = calc_eri(o1, o2, o3, o4);
-		printf("(%d%d | %d%d ) = %18.10f (Laplace) \n", st.orb_id(o1), st.orb_id(o2), st.orb_id(o3), st.orb_id(o4), eri_coulomb );
+		printf("(%zu%zu | %zu%zu ) = %18.10f (Laplace) \n", st.orb_id(o1), st.orb_id(o2), st.orb_id(o3), st.orb_id(o4), eri_coulomb );
 		// Calculate the same thing using Poisson solver 
 		// 1. calculate densities for the first orbiral pair
 		std::fill (rho_re.begin(), rho_re.end(), 0.0);
@@ -643,7 +644,7 @@ void Coulomb::test_against_poisson(size_t L_max4test) {
 		}
 
 
-		printf("(%d%d | %d%d ) = %18.10f + i * %18.10f (Poisson) \n", st.orb_id(o1), st.orb_id(o2), st.orb_id(o3), st.orb_id(o4), eri_re, eri_im);
+		printf("(%zu%zu | %zu%zu ) = %18.10f + i * %18.10f (Poisson) \n", st.orb_id(o1), st.orb_id(o2), st.orb_id(o3), st.orb_id(o4), eri_re, eri_im);
 
 		max_err = std::max(max_err, std::abs(eri_re - eri_coulomb));
 		max_dev = std::max(max_dev, eri_im);

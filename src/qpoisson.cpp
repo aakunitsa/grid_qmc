@@ -435,8 +435,8 @@ void Poisson_solver::test_poisson() {
 						}
 					}
 
-					printf("Re (%d%d|%d%d) = %18.10f \n", st.orb_id(o1), st.orb_id(o2), st.orb_id(o3), st.orb_id(o4), eri_re);
-					printf("Im (%d%d|%d%d) = %18.10f \n", st.orb_id(o1), st.orb_id(o2), st.orb_id(o3), st.orb_id(o4), eri_im);
+					printf("Re (%zu%zu|%zu%zu) = %18.10f \n", st.orb_id(o1), st.orb_id(o2), st.orb_id(o3), st.orb_id(o4), eri_re);
+					printf("Im (%zu%zu|%zu%zu) = %18.10f \n", st.orb_id(o1), st.orb_id(o2), st.orb_id(o3), st.orb_id(o4), eri_im);
 
 				}
 			}
