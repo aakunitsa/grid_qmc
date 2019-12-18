@@ -467,6 +467,8 @@ size_t n_states = 10;
 
 #else
 
+        double t_local = -MPI_Wtime();
+        double t_max;
 	if (q.params["run_type"] == 2) {
             if (me == 0) std::cout << "Setting up grid integrals in main" << std::endl;
                 Grid_integrals g_int(q.params, ss);
@@ -504,8 +506,13 @@ size_t n_states = 10;
                 s.save_walkers(final_state);
                 final_state.close();
                 */
-        } 
-
+        }
+        t_local += MPI_Wtime();
+        MPI_Barrier(MPI_COMM_WORLD);
+        MPI_Reduce(&t_local, &t_max, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        if (me == 0) {
+            printf("Total wall clock time: %20.2f s\n", t_max);
+        }
     MPI_Finalize();
 
 #endif

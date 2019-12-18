@@ -34,6 +34,7 @@ class FCIQMC_mpi {
 
 	// Member variables 
         int me, size;
+        int local_it_count = 0; // local iteration count for debugging purposes
 	std::map<string, int> &par;
         std::unordered_map<int, int> m_walker_ensemble;
         std::vector< std::vector<Walker> > local_spawned; // Stores the determinants asigned to all ranks

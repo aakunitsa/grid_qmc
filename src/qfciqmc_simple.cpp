@@ -49,6 +49,10 @@ FCIQMC_simple::FCIQMC_simple(std::map<string, int> &p, std::map<string, double> 
 		g[iengine] = Rand_seed<random_engine>(gnu_fortran).setup_engine();
             } else if (seeding_algorithm == 2){
 		g[iengine] = Rand_seed<random_engine>(sequence, iengine).setup_engine();
+            } else if (seeding_algorithm >= 1000) {
+                // This has been added for debugging; allows to reproduce the sequence of the random numbers used in the run
+                g[iengine] = random_engine(seeding_algorithm * (iengine + 1));
+                std::cout << " Seed for thread # " << iengine  << " is " << seeding_algorithm * (iengine + 1) << std::endl;
             } else {
                 int seed = chrono::system_clock::now().time_since_epoch().count();
                 g[iengine] = random_engine(seed);

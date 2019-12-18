@@ -17,15 +17,16 @@ MPI_Datatype Walker_dt;
 
 FCIQMC_mpi::FCIQMC_mpi(std::map<string, int> &p, std::map<string, double> &dp, Hamiltonian &h, Basis &b, Estimator &e) : gh(h), gb(b), en_proj(e), par(p) {
 
+    local_it_count = 0;
     // Process input parameters and/or set defaults
     MPI_Comm_rank(MPI_COMM_WORLD, &me);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     // Prepare arrays for MPI
     local_n_spawned.resize(size);
+    local_spawned.resize(size);
     std::fill(local_n_spawned.begin(), local_n_spawned.end(), 0);
     global_n_spawned.resize(size);
     std::fill(global_n_spawned.begin(), global_n_spawned.end(), 0);
-    global_spawned.resize(size);
     disp.resize(size);
     std::fill(disp.begin(), disp.end(), 0);
     // Register the Walker structure with MPI
@@ -54,6 +55,10 @@ FCIQMC_mpi::FCIQMC_mpi(std::map<string, int> &p, std::map<string, double> &dp, H
 	g = Rand_seed<random_engine>(gnu_fortran).setup_engine();
     } else if (seeding_algorithm == 2){
 	g = Rand_seed<random_engine>(sequence, me).setup_engine();
+    } else if (seeding_algorithm >= 1000) {
+        // This has been added for debugging; allows to reproduce the sequence of the random numbers used in the run
+        g = random_engine(seeding_algorithm * (me + 1));
+        std::cout << " Seed for process # " << me  << " is " << seeding_algorithm * (me + 1) << std::endl;
     } else {
         int seed = chrono::system_clock::now().time_since_epoch().count() * (me + 1);
         g = random_engine(seed);
@@ -64,6 +69,21 @@ FCIQMC_mpi::FCIQMC_mpi(std::map<string, int> &p, std::map<string, double> &dp, H
     // This will be used in initialize if uniform_init == false
     if(!uniform_init) init_guess_subspace = std::min(p["fciqmc_guess_subspace"], int(gb.get_basis_size())); 
     initialize(uniform_init);
+
+    if (me == 0) {
+        std::vector<double> ndet_per_proc;
+        ndet_per_proc.resize(size, 0.0);
+        //std::cout << " Determinant mapping " << std::endl;
+        for (size_t b = 0; b < gb.get_basis_size(); b++) {
+        //    std::cout << " Det # " << b << " => " fnv_hash(b) << std::endl;
+            ndet_per_proc[fnv_hash(b)] += 1.0;
+        }
+        if (debug) {
+            std::cout << " Basis function counts per MPI rank " << std::endl;
+            for (size_t iproc = 0; iproc < size; iproc++) 
+                std::cout << "Hash function assigns " << ndet_per_proc[iproc] << " to rank # " << iproc << std::endl; 
+        }
+    }
 }
 
 void FCIQMC_mpi::update_walker_lists() {
@@ -84,6 +104,24 @@ void FCIQMC_mpi::update_walker_lists() {
 
     assert (total == total_);
 
+    if (debug) {
+        for (int iproc = 0; iproc < size; iproc++) {
+            if (me != iproc) {
+                MPI_Barrier(MPI_COMM_WORLD);
+            } else {
+                std::cout << " Local spawned on process # " << iproc << " at iteration " << local_it_count << std::endl;
+                for (int jproc = 0; jproc < size; jproc++) {
+                    std::cout << "To be sent to # " << jproc << std::endl;
+                    for (const auto &w : local_spawned[jproc] )
+                        std::cout << "(" << w.det_id << ", " << w.weight << ")" << std::endl;
+                }
+                std::cout.flush();
+                MPI_Barrier(MPI_COMM_WORLD);
+            }
+        }
+    }
+
+
     for (int i = 0; i < size; i++) {
         std::fill(global_n_spawned.begin(), global_n_spawned.end(), 0);
         std::fill(disp.begin(), disp.end(), 0);
@@ -92,11 +130,19 @@ void FCIQMC_mpi::update_walker_lists() {
             // Sum up all the elements of local_n_spawned and allocate 
             // an appropriate amount of memory
             int total_n_spawned_on_me = std::accumulate(global_n_spawned.begin(), global_n_spawned.end(), 0);
+            if(debug) std::cout << " Total spawned on # " << i << " is " << total_n_spawned_on_me << " at iteration " << local_it_count << std::endl;
             global_spawned.resize(total_n_spawned_on_me);
-            for (size_t i = 0; i < size - 1; i++) disp[i + 1] = disp[i] + global_n_spawned[i];
+            for (size_t iproc = 0; iproc < size - 1; iproc++) disp[iproc + 1] = disp[iproc] + global_n_spawned[iproc];
+            if (debug) {
+                std::cout << "Process " << i << " recieved the following walker counts " << " at iteration " << local_it_count << std::endl;
+                for (int iproc = 0; iproc < size; iproc++) 
+                    std::cout << " From rank # " << iproc << ": " << global_n_spawned[iproc] <<std::endl;
+            }
+
+            std::cout.flush();
         }
         MPI_Barrier(MPI_COMM_WORLD); // Do I need it here?
-        MPI_Gatherv(local_spawned[i].data(), local_spawned[i].size(), Walker_dt, global_spawned.data(), global_n_spawned.data(), disp.data(), Walker_dt, i, MPI_COMM_WORLD);
+        MPI_Gatherv(local_spawned[i].data(), (int)local_spawned[i].size(), Walker_dt, global_spawned.data(), global_n_spawned.data(), disp.data(), Walker_dt, i, MPI_COMM_WORLD);
         // Merge the walkers to the main array
         if (i == me) {
             for (const auto &w : global_spawned) {
@@ -119,9 +165,12 @@ int FCIQMC_mpi::fnv_hash(const int &src) {
     constexpr size_t p = 1099511628211; // Mol. Phys. 112, 1855 (2014)
     auto [ na, nb ] = gb.get_ab();
     auto [ ia, ib ] = gb.unpack_str_index((size_t)src);
-    auto src_a = gb.a(ia), src_b = gb.b(ib);
+    auto src_a = gb.a(ia);
     for (size_t i = 0; i < na; i++) hash += (p*hash + i * src_a[i]);
-    for (size_t i = 0; i < nb; i++) hash += (p*hash + (i + na) * 2 * src_b[i]);
+    if (nb > 0) {
+        auto src_b = gb.b(ib);
+        for (size_t i = 0; i < nb; i++) hash += (p*hash + (i + na) * 2 * src_b[i]);
+    }
 
     return abs(hash % size);
 
@@ -134,6 +183,7 @@ void FCIQMC_mpi::initialize (bool uniform) {
     double max_diag_global, min_diag_global;
 
     if (uniform) {
+        assert (local_spawned.size() == size && local_n_spawned.size() == size);
 	uniform_int_distribution<int> init_distr(0, basis_size - 1);
         for (int n = 0; n < m_N; n++) {
             int idx = init_distr(g);
@@ -168,6 +218,8 @@ void FCIQMC_mpi::initialize (bool uniform) {
         min_diag = min_diag_global;
 
     } else {
+        //assert (size == 1);
+        assert (local_spawned.size() == size && local_n_spawned.size() == size);
         // 1. Construct a truncated basis
         auto H_diag = gh.build_diagonal();
         TruncatedBasis tr_gb(par, gb.get_n1porb(), init_guess_subspace, H_diag, gb);
@@ -249,6 +301,7 @@ void FCIQMC_mpi::run() {
         }
 
         for (size_t istep = 0; istep < m_N_equil * m_steps_per_block; istep++) {
+            local_it_count++;
 	    int N_after, N_before = m_N_global; // Global has to be up-to-date
 	    run_step(debug);
             MPI_Barrier(MPI_COMM_WORLD);
@@ -276,6 +329,8 @@ void FCIQMC_mpi::run() {
             }
         }
 
+        //MPI_Barrier(MPI_COMM_WORLD);
+
 	// Production run
 
         if (me == 0) {
@@ -284,7 +339,8 @@ void FCIQMC_mpi::run() {
         }
 
         for (size_t istep = 0; istep < m_N_blocks * m_steps_per_block; istep++) {
-	    int N_after, N_before = m_N;
+            local_it_count++;
+	    int N_after, N_before = m_N_global;
 	    run_step(debug);
             MPI_Barrier(MPI_COMM_WORLD);
             update_walker_lists();
@@ -304,7 +360,7 @@ void FCIQMC_mpi::run() {
             if ((istep + 1) % m_steps_per_block == 0 ) {
                 m_E_T -= B / (m_steps_per_block * dt) * log (double(N_after) / N_before); 
                 // Projected estimator will be calculated below
-
+                
                 double e_num = 0.0, e_denom = 0.0;
                 double e_num_global = 0.0, e_denom_global = 0.0;
                 for (const auto &w : m_walker_ensemble) {
@@ -316,6 +372,7 @@ void FCIQMC_mpi::run() {
                 MPI_Barrier(MPI_COMM_WORLD);
                 MPI_Reduce(&e_num, &e_num_global, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
                 MPI_Reduce(&e_denom, &e_denom_global, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+                
 
                 // Only root process will have the correct m_E_M 
 
@@ -346,9 +403,12 @@ void FCIQMC_mpi::run_step(bool verbose) {
     int total_spawned = 0, anti_creations = 0, total_killed = 0, total_cloned = 0, N_pr = 0;
 
     std::fill(local_n_spawned.begin(), local_n_spawned.end(), 0); 
+    // For added safety?
+    for (size_t pid = 0; pid < size; pid++)
+        local_spawned[pid].resize(0);
 
     for (auto &w : m_walker_ensemble) {
-        size_t i = w.first;
+        const size_t i = w.first;
         const int n_walkers = abs(w.second);
         const int sign_ref = ( w.second > 0 ? 1 : -1);
         if (n_walkers == 0) continue; // This is important since we are working with a full population vector
@@ -362,6 +422,7 @@ void FCIQMC_mpi::run_step(bool verbose) {
             if (ps - survivors > u(g)) survivors++;
             int proc = fnv_hash(j);
             local_n_spawned[proc] += survivors;
+            total_spawned += survivors;
             if (local_spawned[proc].size() < local_n_spawned[proc]) local_spawned[proc].resize(local_n_spawned[proc]);
             for (size_t k = local_n_spawned[proc] - survivors; k < local_n_spawned[proc]; k++) 
                 local_spawned[proc][k] = Walker((int)j, sign);
@@ -398,11 +459,13 @@ void FCIQMC_mpi::run_step(bool verbose) {
 
     if (verbose) {
 
+        std::cout << "At iteration " << local_it_count << std::endl;
         std::cout << "Number of walkers processed in the loop = " << N_pr << " on process # " << me << std::endl;
 	std::cout << "Number of anti-particles created = " << anti_creations << " on process # " << me << std::endl;
         std::cout << "Number of particles killed = " << total_killed << " on process # " << me << std::endl;
 	std::cout << "Death rate = " << double(total_killed)/N_0 << " on process # " << me << std::endl;
 	std::cout << "Number of particles cloned = " << total_cloned << " on process # " << me << std::endl;
+	std::cout << "Number of particles spawned = " << total_spawned << " on process # " << me << std::endl;
 	std::cout << "Average spawning rate = " << double(total_spawned)/N_0 << " on process # " << me << std::endl;
 
         if (double(total_spawned)/N_0 > 1) {
