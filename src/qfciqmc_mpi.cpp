@@ -169,7 +169,7 @@ int FCIQMC_mpi::fnv_hash(const int &src) {
     for (size_t i = 0; i < na; i++) hash += (p*hash + i * src_a[i]);
     if (nb > 0) {
         auto src_b = gb.b(ib);
-        for (size_t i = 0; i < nb; i++) hash += (p*hash + (i + na) * 2 * src_b[i]);
+        for (size_t i = 0; i < nb; i++) hash += (p*hash + (i + na) * 2 * src_b[i]); // This needs to be updated so that indeces of beta orbitals are offset correctly!
     }
 
     return abs(hash % size);
@@ -235,6 +235,7 @@ void FCIQMC_mpi::initialize (bool uniform) {
         std::discrete_distribution<int> init_distr2(init_distr1.begin(), init_distr1.end());
         for (int i = 0; i < m_N; i++) {
             int tr_det = init_distr2(g);
+            //std::cout << tr_det << std::endl;
             int sign = guess_wfn[tr_det] > 0 ? 1 : -1;
             int proc = fnv_hash(tr_gb.get_id(tr_det));
             local_n_spawned[proc] += 1;
@@ -269,6 +270,16 @@ void FCIQMC_mpi::initialize (bool uniform) {
         std::cout << " Number of unique walkers = " << m_N_uniq_global << std::endl;
         printf(" Imaginary time-step = %20.10f\n", dt);
         printf(" Initial guess for the energy offset = %10.6f\n", m_E_T);
+
+        // This is added temporary for debugging purposes
+        // Printing the initial walker ensemble on the master process
+        /*
+        std::vector<int> extended_ensemble (gb.get_basis_size(), 0);
+        for (const auto &w : m_walker_ensemble) extended_ensemble[w.first] += w.second;
+        std::cout << " Initial walker ensemble for reference purposes " << std::endl;
+        for (size_t jb = 0; jb < gb.get_basis_size(); jb++) std::cout << " On b.f. # " << jb << " : " << extended_ensemble[jb] << std::endl;
+        std::cout << " Control random number (to test the state of generator) " << g() << std::endl;
+        */
     }
 }
 
@@ -300,32 +311,31 @@ void FCIQMC_mpi::run() {
             std::cout.flush();
         }
 
-        for (size_t istep = 0; istep < m_N_equil * m_steps_per_block; istep++) {
-            local_it_count++;
+        for (size_t iblock = 0; iblock < m_N_equil; iblock++) {
 	    int N_after, N_before = m_N_global; // Global has to be up-to-date
-	    run_step(debug);
-            MPI_Barrier(MPI_COMM_WORLD);
-            update_walker_lists();
-            m_N = 0; m_N_uniq = 0;
-            for (const auto &w : m_walker_ensemble) {
-                m_N += abs(w.second); 
-                m_N_uniq++;
-            }
-            MPI_Barrier(MPI_COMM_WORLD);
-            MPI_Allreduce(&m_N, &m_N_global, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD); 
-            MPI_Allreduce(&m_N_uniq, &m_N_uniq_global, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD); 
-            N_after = m_N_global; // !!
-	    if (N_after == 0) {
-	    	std::cout << "All walkers died! Aborting..." << std::endl; 
-                MPI_Abort(MPI_COMM_WORLD, 1);
-	    }
-            if ((istep + 1) % m_steps_per_block == 0 ) {
-                m_E_T -= B / (m_steps_per_block * dt) * log (double(N_after) / N_before); 
-                if (me == 0) {
-                    int iblock = ((istep + 1)/m_steps_per_block) - 1;
-                    printf( "%-7d %-10d %-13.6f %-13.6f %-13s %-13s\n", iblock, get_num_total(), m_E_M, m_E_T, "-", "-"); 
-                    std::cout.flush();
+            for (size_t istep = 0; istep < m_steps_per_block; istep++) {
+                local_it_count++;
+                run_step(debug);
+                MPI_Barrier(MPI_COMM_WORLD);
+                update_walker_lists();
+                m_N = 0; m_N_uniq = 0;
+                for (const auto &w : m_walker_ensemble) {
+                    m_N += abs(w.second); 
+                    m_N_uniq++;
                 }
+                MPI_Barrier(MPI_COMM_WORLD);
+                MPI_Allreduce(&m_N, &m_N_global, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD); 
+                MPI_Allreduce(&m_N_uniq, &m_N_uniq_global, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD); 
+                if (m_N_global == 0) {
+                    std::cout << "All walkers died! Aborting..." << std::endl; 
+                    MPI_Abort(MPI_COMM_WORLD, 1);
+                }
+            }
+            N_after = m_N_global; // !!
+            m_E_T -= B / (m_steps_per_block * dt) * log (double(N_after) / N_before); 
+            if (me == 0) {
+                printf( "%-7d %-10d %-13.6f %-13.6f %-13s %-13s\n", iblock, get_num_total(), m_E_M, m_E_T, "-", "-"); 
+                std::cout.flush();
             }
         }
 
@@ -338,53 +348,48 @@ void FCIQMC_mpi::run() {
             std::cout.flush();
         }
 
-        for (size_t istep = 0; istep < m_N_blocks * m_steps_per_block; istep++) {
-            local_it_count++;
+        for (size_t iblock = 0; iblock < m_N_blocks; iblock++) {
 	    int N_after, N_before = m_N_global;
-	    run_step(debug);
-            MPI_Barrier(MPI_COMM_WORLD);
-            update_walker_lists();
-            m_N = 0; m_N_uniq = 0;
-            for (const auto &w : m_walker_ensemble) {
-                m_N += abs(w.second); 
-                m_N_uniq++;
-            }
-            MPI_Barrier(MPI_COMM_WORLD);
-            MPI_Allreduce(&m_N, &m_N_global, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD); 
-            MPI_Allreduce(&m_N_uniq, &m_N_uniq_global, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD); 
-            N_after = m_N_global;
-	    if (N_after == 0) {
-	    	std::cout << "All walkers died! Aborting..." << std::endl; 
-                MPI_Abort(MPI_COMM_WORLD, 1);
-	    }
-            if ((istep + 1) % m_steps_per_block == 0 ) {
-                m_E_T -= B / (m_steps_per_block * dt) * log (double(N_after) / N_before); 
-                // Projected estimator will be calculated below
-                
-                double e_num = 0.0, e_denom = 0.0;
-                double e_num_global = 0.0, e_denom_global = 0.0;
+            for (size_t istep = 0; istep < m_steps_per_block; istep++) {
+                local_it_count++;
+                run_step(debug);
+                MPI_Barrier(MPI_COMM_WORLD);
+                update_walker_lists();
+                m_N = 0; m_N_uniq = 0;
                 for (const auto &w : m_walker_ensemble) {
-                    if (w.second == 0) continue;
-                    auto [n_, d_] = en_proj.eval(w.first);
-                    e_num += n_ * w.second;
-                    e_denom += d_ * w.second;
+                    m_N += abs(w.second); 
+                    m_N_uniq++;
                 }
                 MPI_Barrier(MPI_COMM_WORLD);
-                MPI_Reduce(&e_num, &e_num_global, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-                MPI_Reduce(&e_denom, &e_denom_global, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-                
-
-                // Only root process will have the correct m_E_M 
-
-                if (me == 0) {
-                    assert (abs(e_denom_global) >= 1e-10);
-                    m_E_M = e_num_global / e_denom_global;
-                    gsl_rstat_add(m_E_M, rstat_m);
-                    gsl_rstat_add(m_E_T, rstat_g);
-                    int iblock = ((istep + 1)/m_steps_per_block) - 1;
-                    printf( "%-7d %-10d %-13.6f %-13.6f %-13.6f %-13.6f\n", iblock, get_num_total(), m_E_M, m_E_T, gsl_rstat_mean(rstat_m), gsl_rstat_mean(rstat_g)); 
-                    std::cout.flush();
+                MPI_Allreduce(&m_N, &m_N_global, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD); 
+                MPI_Allreduce(&m_N_uniq, &m_N_uniq_global, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD); 
+                if (m_N_global == 0) {
+                    std::cout << "All walkers died! Aborting..." << std::endl; 
+                    MPI_Abort(MPI_COMM_WORLD, 1);
                 }
+            }
+            N_after = m_N_global;
+            m_E_T -= B / (m_steps_per_block * dt) * log (double(N_after) / N_before); 
+            // Projected estimator will be calculated below
+            double e_num = 0.0, e_denom = 0.0;
+            double e_num_global = 0.0, e_denom_global = 0.0;
+            for (const auto &w : m_walker_ensemble) {
+                if (w.second == 0) continue;
+                auto [n_, d_] = en_proj.eval(w.first);
+                e_num += n_ * w.second;
+                e_denom += d_ * w.second;
+            }
+            MPI_Barrier(MPI_COMM_WORLD);
+            MPI_Reduce(&e_num, &e_num_global, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+            MPI_Reduce(&e_denom, &e_denom_global, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+            // Only root process will have the correct m_E_M 
+            if (me == 0) {
+                assert (abs(e_denom_global) >= 1e-10);
+                m_E_M = e_num_global / e_denom_global;
+                gsl_rstat_add(m_E_M, rstat_m);
+                gsl_rstat_add(m_E_T, rstat_g);
+                printf( "%-7d %-10d %-13.6f %-13.6f %-13.6f %-13.6f\n", iblock, get_num_total(), m_E_M, m_E_T, gsl_rstat_mean(rstat_m), gsl_rstat_mean(rstat_g)); 
+                std::cout.flush();
             }
         }
 
@@ -401,6 +406,11 @@ void FCIQMC_mpi::run_step(bool verbose) {
     std::uniform_real_distribution<double> u(0.0, 1.0);
     std::uniform_int_distribution<int> disp_walker(1, basis_size - 1); // This should be shared among threads
     int total_spawned = 0, anti_creations = 0, total_killed = 0, total_cloned = 0, N_pr = 0;
+    //std::cout << " Control rn (from mt) : " << g() << std::endl;
+    //for (size_t dummy = 0; dummy < 1000; dummy++) std::cout << " Control rn : " << disp_walker(g) << std::endl;
+    //for (size_t dummy = 0; dummy < 1000; dummy++) std::cout << " Control rn : " << u(g) << std::endl;
+
+    //const random_engine &r_g = g; // This is not allowed :(
 
     std::fill(local_n_spawned.begin(), local_n_spawned.end(), 0); 
     // For added safety?
@@ -408,13 +418,17 @@ void FCIQMC_mpi::run_step(bool verbose) {
         local_spawned[pid].resize(0);
 
     for (auto &w : m_walker_ensemble) {
-        const size_t i = w.first;
+        //const size_t i = w.first;
+        const int i = w.first;
         const int n_walkers = abs(w.second);
         const int sign_ref = ( w.second > 0 ? 1 : -1);
         if (n_walkers == 0) continue; // This is important since we are working with a full population vector
-        N_pr += n_walkers;
-        for (size_t w = 0; w < n_walkers; w++) {
-            size_t j = size_t ((i + disp_walker(g)) % basis_size);
+        //std::cout << " On det # " << i << std::endl;
+        for (size_t iw = 0; iw < n_walkers; iw++) {
+            N_pr++;
+            auto di = disp_walker(g);
+            //std::cout << di << std::endl;
+            size_t j = size_t ((i + di) % basis_size);
             double h = gh.matrix(i, j);
             int sign = (h >= 0 ? 1 : -1) * (-1) * sign_ref;
             double ps = abs(h) * dt * (basis_size - 1); 
@@ -423,9 +437,11 @@ void FCIQMC_mpi::run_step(bool verbose) {
             int proc = fnv_hash(j);
             local_n_spawned[proc] += survivors;
             total_spawned += survivors;
+            
             if (local_spawned[proc].size() < local_n_spawned[proc]) local_spawned[proc].resize(local_n_spawned[proc]);
             for (size_t k = local_n_spawned[proc] - survivors; k < local_n_spawned[proc]; k++) 
                 local_spawned[proc][k] = Walker((int)j, sign);
+            
         }
         //std::cout << "Finished spawning for walker # " << i << endl;
         // Birth-death process
@@ -456,6 +472,27 @@ void FCIQMC_mpi::run_step(bool verbose) {
 
     // Perform some obvious checks
     assert (N_pr == N_0);
+    // -----------------------------------------------------------------------------------
+    // The following code block is added for debugging purposes and will be commented out 
+    // in the final version of the code
+    /*
+    std::vector<int> spawned_combined(gb.get_basis_size(), 0);
+    for (int iproc = 0; iproc < size; iproc++) 
+        for (const auto &w : local_spawned[iproc])
+            spawned_combined[w.det_id] += w.weight;
+
+    std::cout << " >> Spawned walker array (only non-zero elements) << " << std::endl;
+    for (size_t jb = 0; jb < gb.get_basis_size(); jb++) 
+        if (spawned_combined[jb] != 0) std::cout << " On b.f. # " << jb << " : " << spawned_combined[jb] << std::endl;
+
+    std::vector<int> extended_ensemble (gb.get_basis_size(), 0);
+    for (const auto &w : m_walker_ensemble) extended_ensemble[w.first] += w.second;
+
+    std::cout << " >> Main walker array (only non-zero elements) << " << std::endl;
+    for (size_t ib = 0; ib < gb.get_basis_size() ; ib++)
+        if (extended_ensemble[ib] != 0) std::cout << " On b.f. # " << ib << " : " << extended_ensemble[ib] << std::endl; 
+    */
+    // -----------------------------------------------------------------------------------
 
     if (verbose) {
 
@@ -486,5 +523,5 @@ void FCIQMC_mpi::save_walkers(fstream &out) {
 }
 
 FCIQMC_mpi::~FCIQMC_mpi() {
-	// Deallocate g here!!!
+    // No need to do anything :)
 }

@@ -168,6 +168,7 @@ void FCIQMC_simple::initialize (bool uniform) {
 			int tr_det = init_distr2(g[tid]);
 #else
 			int tr_det = init_distr2(g[0]);
+                        //std::cout << tr_det << std::endl;
 #endif
 			int sign = guess_wfn[tr_det] > 0 ? 1 : -1;
 #pragma omp critical 
@@ -176,9 +177,9 @@ void FCIQMC_simple::initialize (bool uniform) {
 			}
 		}
 
-		m_N_uniq = 0;
+		m_N_uniq = 0; 
 		for (const auto &w : m_walker_ensemble)
-			m_N_uniq += abs(w);
+			m_N_uniq += abs(w); // Check if this is correct; in the present form it seems m_N_uniq == m_N
 
 		m_E_T = guess_en[0]; m_E_M = guess_en[0];
 		max_diag = *std::max_element(H_diag.begin(), H_diag.end());
@@ -195,6 +196,10 @@ void FCIQMC_simple::initialize (bool uniform) {
 	printf(" Imaginary time-step = %20.10f\n", dt);
 	printf(" Initial guess for the energy offset = %10.6f\n", m_E_T);
 
+        // Printing the initial walker ensemble (this will be commented out later
+        //std::cout << " Initial walker ensemble for reference purposes " << std::endl;
+        //for (size_t jb = 0; jb < gb.get_basis_size(); jb++) std::cout << " On b.f. # " << jb << " : " << m_walker_ensemble[jb] << std::endl;
+        //std::cout << " Control random number (to test the state of generator) " << g[0]() << std::endl;
 	// Print m_walker_ensemble
 	//std::cout << " Printing the occupation vector" << std::endl;
 	//for (auto p : m_walker_ensemble)
@@ -352,6 +357,9 @@ void FCIQMC_simple::run_block(size_t nsteps, bool equil, bool debug_mode) {
     std::uniform_int_distribution<int> disp_walker(1, basis_size - 1); // This should be shared among threads
     int total_spawned = 0, anti_creations = 0, total_killed = 0, total_cloned = 0, N = 0, N_pr = 0, N_uniq = 0;
     double e_num = 0.0, e_denom = 0.0;
+    //std::cout << " Control rn (from mt) : " << g[0]() << std::endl;
+    //for (size_t dummy = 0; dummy < 1000; dummy++) std::cout << " Control rn : " << disp_walker(g[0]) << std::endl;
+    //for (size_t dummy = 0; dummy < 1000; dummy++) std::cout << " Control rn : " << u(g[0]) << std::endl;
 
     std::stringstream int_rand_nums, double_rand_nums, double_rand_nums1;
     double_rand_nums << std::setw(20) << std::setprecision(10);
@@ -390,9 +398,11 @@ void FCIQMC_simple::run_block(size_t nsteps, bool equil, bool debug_mode) {
             const int n_walkers = abs(m_walker_ensemble[i]);
             const int sign_ref = ( m_walker_ensemble[i] > 0 ? 1 : -1);
             if (n_walkers == 0 && !debug_mode) continue; // This is important since we are working with a full population vector
-            N_pr += n_walkers;
+            //std::cout << " On det. # " << i << std::endl;
+            //N_pr += n_walkers;
             if (debug_mode) {
                 for (size_t w = 0; w < n_walkers; w++) {
+                    N_pr++;
                     auto di = disp_walker(g[tid]);
                     int_rand_nums << di << std::endl;
                     size_t j = size_t ((i + di) % basis_size);
@@ -413,7 +423,10 @@ void FCIQMC_simple::run_block(size_t nsteps, bool equil, bool debug_mode) {
 
             } else {
                 for (size_t w = 0; w < n_walkers; w++) {
-                    size_t j = size_t ((i + disp_walker(g[tid])) % basis_size);
+                    N_pr++;
+                    auto di = disp_walker(g[tid]);
+                    //std::cout << di << std::endl;
+                    size_t j = size_t ((i + di) % basis_size);
                     //int di;
                     //#pragma omp critical
                     //di = disp_walker(g[0]);
@@ -422,8 +435,7 @@ void FCIQMC_simple::run_block(size_t nsteps, bool equil, bool debug_mode) {
                     int sign = (h >= 0 ? 1 : -1) * (-1) * sign_ref;
                     double ps = abs(h) * dt * (basis_size - 1); 
                     int survivors = int(ps);
-                    if (ps - survivors > u(g[tid])) 
-                        survivors++;
+                    if (ps - survivors > u(g[tid])) survivors++;
                     // Add to spawned
                     #pragma omp atomic 
                     total_spawned += survivors;
@@ -440,8 +452,7 @@ void FCIQMC_simple::run_block(size_t nsteps, bool equil, bool debug_mode) {
             if (debug_mode) {
                 double rn = u(g[tid]);
                 double_rand_nums1 << rn << std::endl;
-                if((abs(rate) - nkill) > rn) 
-                    nkill++;
+                if((abs(rate) - nkill) > rn) nkill++;
             } else {
                 if((abs(rate) - nkill) > u(g[tid])) 
     //            double rn;
@@ -478,6 +489,21 @@ void FCIQMC_simple::run_block(size_t nsteps, bool equil, bool debug_mode) {
 
 		// Should I put a BLAS call here? (i.e. calculate the range 
 		// for each thread and write a proper BLAS call for it)
+        // -----------------------------------------------------------------------------------
+        // The following code block is added for debugging purposes and will be commented out 
+        // in the final version of the code
+#pragma omp single 
+        {
+            /*
+            std::cout << " >> Spawned walker array (only non-zero elements) << " << std::endl;
+            for (size_t jb = 0; jb < gb.get_basis_size(); jb++) 
+                if (spawned[jb] != 0) std::cout << " On b.f. # " << jb << " : " << spawned[jb] << std::endl;
+            std::cout << " >> Main walker array (only non-zero elements) << " << std::endl;
+            for (size_t ib = 0; ib < gb.get_basis_size() ; ib++)
+                if (m_walker_ensemble[ib] != 0) std::cout << " On b.f. # " << ib << " : " << m_walker_ensemble[ib] << std::endl; 
+            */
+        }
+        // -----------------------------------------------------------------------------------
 
         #pragma omp for schedule(static) reduction(+:N,N_uniq)
         for (int i = 0; i < basis_size; i++) {
