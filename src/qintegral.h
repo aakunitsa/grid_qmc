@@ -24,7 +24,7 @@ class Integral_factory {
                 std::vector<double> expand(std::vector<double> &vec); // Expands a vector wrt to the orbital basis defined in paux_bf
 
 		// Member variables
-	    Becke_grid g;
+                Becke_grid g;
 		int n1porb;
 		std::vector<double> paux_bf;
 
@@ -34,7 +34,7 @@ class Integral_factory {
 		bool check_orthogonality(double orth_thresh);
 
 		// Member variables
-	    Laplacian lp;
+                Laplacian lp;
 
                 // Memoize integrals
                 size_t max_cache_size;
@@ -42,6 +42,10 @@ class Integral_factory {
                 // Function to convert ERI index into a number
                 size_t encode(size_t i, size_t j, size_t k, size_t l);
                 bool test_encode();
+                // Reorder basis functions accrording to their core energies (i.e. 2e part is ignored)
+                // This will only be used with fcidump for now...
+                std::vector<size_t> paux_bf_map; 
+                void gen_bf_map(bool sort);
 };
 
 

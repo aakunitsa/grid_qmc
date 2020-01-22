@@ -67,7 +67,44 @@ std::vector<double> Integral_factory::expand(std::vector<double> &vec) {
     return exp_coef;
 }
 
+void Integral_factory::gen_bf_map(bool sort=false) {
+    paux_bf_map.resize(n1porb);
+    std::iota(paux_bf_map.begin(), paux_bf_map.end(), 0);
+    if (sort && (n1porb > 1)) {
+        // Calculate the array of one-particle energies, perform
+        // a modified insertion sort and populate paux_bf_map accordingly
+
+        std::vector<double> oe (n1porb, 0.0);
+        assert(oe.size() == n1porb);
+        for (size_t i = 0; i < n1porb; i++) oe[i] = hc(i, i);
+        std::vector<size_t> paux_bf_map_inverse(paux_bf_map.begin(), paux_bf_map.end());
+        assert((paux_bf_map_inverse.size() == n1porb) && (oe.size() == n1porb));
+
+        // The following code does not change oe array
+        for (int i = 1; i < n1porb; i++) {
+            double x = oe[paux_bf_map_inverse[i]];
+            size_t position = paux_bf_map_inverse[i];
+            int j = i - 1;
+            while (j >= 0 && (x < oe[paux_bf_map_inverse[j]])) {
+                paux_bf_map_inverse[j + 1] = paux_bf_map_inverse[j];
+                j = j - 1;
+            }
+            paux_bf_map_inverse[j + 1] = position;
+        }
+
+        // Reconstruct paux_bf_map from its inverse
+        for (size_t k = 0; k < n1porb; k++) 
+            paux_bf_map[paux_bf_map_inverse[k]] = k; // Unsorted array -> sorted array
+
+        // Perform a quick test to make sure that the map is generated correctly
+        for (size_t l = 0; l < n1porb - 2; l++) assert (oe[paux_bf_map[l]] <= oe[paux_bf_map[l+1]]);
+    }
+}
+
 void Integral_factory::fcidump() {
+
+        // Generate paux_bf_map
+        gen_bf_map(true);
 
 	fstream int_file;
 	int_file.open("QFCIDUMP.POLY", std::ios::out);
@@ -81,7 +118,7 @@ void Integral_factory::fcidump() {
 			double h = hc(i, j); // Will be symmetrized inside hc function! 
 
 			int_file << std::scientific << std::setprecision(20) << std::setw(28) << h << "    " ;
-			int_file << i + 1 << "    " << j + 1 << "    " << 0 << "    " << 0 << std::endl;
+			int_file << paux_bf_map[i] + 1 << "    " << paux_bf_map[j] + 1 << "    " << 0 << "    " << 0 << std::endl;
 			
 		}
 	}
@@ -145,7 +182,7 @@ void Integral_factory::fcidump() {
 			
 
 			int_file << std::scientific << std::setprecision(20) << std::setw(28) << eri[0] << "    " ; // See the note above
-			int_file << i + 1 << "    " << j + 1 << "    " << k + 1 << "    " << l + 1 << std::endl;
+			int_file << paux_bf_map[i] + 1 << "    " << paux_bf_map[j] + 1 << "    " << paux_bf_map[k] + 1 << "    " << paux_bf_map[l] + 1 << std::endl;
 
 		}
 	}

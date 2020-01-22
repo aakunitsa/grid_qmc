@@ -259,7 +259,7 @@ Time 169.911 s
 size_t n_states = 10;
 
     if (q.params["run_type"] == 0) {
-        std::cout << "Setting up grid integrals in main" << std::endl;
+        std::cout << "Saving Grid integrals on disk and exiting." << std::endl;
         Grid_integrals g_int(q.params, ss);
 	g_int.fcidump();
     } else if (q.params["run_type"] == 1) {
@@ -490,11 +490,11 @@ size_t n_states = 10;
 		FCIQMC_mpi s(q.params, q.dparams, h, basis, proj_en);
 		s.run();
         }  if (q.params["run_type"] == 6) {
-            if (me == 0) std::cout << "Setting up grid integrals in main" << std::endl;
+            if (me == 0) std::cout << "(MAIN) Setting up grid integrals in main" << std::endl;
                 Grid_integrals g_int(q.params, ss);
 		DetBasis basis(q.params, g_int.n1porb);
                 Hamiltonian h(g_int, basis);
-            if (me == 0) std::cout << "Setting up a mixed basis estimator" << std::endl;
+            if (me == 0) std::cout << "(MAIN) Setting up a mixed basis estimator" << std::endl;
 		MixedBasisEstimator mb_en(q, g_int, basis);
 		FCIQMC_mpi s(q.params, q.dparams, h, basis, mb_en);
 		s.run();
@@ -511,7 +511,7 @@ size_t n_states = 10;
         MPI_Barrier(MPI_COMM_WORLD);
         MPI_Reduce(&t_local, &t_max, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
         if (me == 0) {
-            printf("Total wall clock time: %20.2f s\n", t_max);
+            printf("(MAIN) Total wall clock time: %20.2f s\n", t_max);
         }
     MPI_Finalize();
 

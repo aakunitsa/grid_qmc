@@ -7,6 +7,11 @@
 
 
 MixedBasisEstimator::MixedBasisEstimator(Params_reader &q, Integral_factory &int_f, Basis &bas) : ss(q.params["L_max"]), g(q.params), Estimator(int_f, bas) {
+#ifdef USE_MPI
+    int me;
+    MPI_Comm_rank(MPI_COMM_WORLD, &me);
+    if(me != 0) verbose = false;
+#endif
     // Allocate auxiliary basis
     aux_int = new Aux_integrals(q, ss);
     aux_bas_full = new DetBasis(q.params, aux_int->n1porb);
@@ -15,7 +20,7 @@ MixedBasisEstimator::MixedBasisEstimator(Params_reader &q, Integral_factory &int
     auto d = aux_h_full.build_diagonal();
     {
         auto e = aux_h_full.diag(false);
-        std::cout << "The ground state energy of the full Hamiltonian is " << e[0] << std::endl;
+        if (verbose) std::cout << "(MixedBasisEstimator) The ground state energy of the full Hamiltonian is " << e[0] << std::endl;
     }
     size_t subspace_size = std::min(aux_bas_full->get_basis_size(), size_t(q.params["fciqmc_projection_subspace"]));
     if (subspace_size <= 0) subspace_size = 1;
@@ -39,9 +44,9 @@ MixedBasisEstimator::MixedBasisEstimator(Params_reader &q, Integral_factory &int
                 e_rei += trial_state[i] * trial_state[j] * aux_h_tr.matrix(i, j);
             }
         }
-        std::cout << "Reileigh estimator is " << e_rei / cblas_dnrm2(aux_bas_tr->get_basis_size(), trial_state.data(), 1) << std::endl;
+        if (verbose) std::cout << "(MixedBasisEstimator) Reileigh estimator is " << e_rei / cblas_dnrm2(aux_bas_tr->get_basis_size(), trial_state.data(), 1) << std::endl;
     }
-    std::cout << "Ground state energy is " << trial_e << std::endl;
+    if (verbose) std::cout << "(MixedBasisEstimator) Ground state energy is " << trial_e << std::endl;
     // Calculate the overlap matrix between the basis vectors 
     //std::cout << "Calculating the overlap matrix " << std::endl;
     overlap.resize(bas_full.get_basis_size() * aux_bas_tr->get_basis_size());
@@ -130,9 +135,11 @@ bool MixedBasisEstimator::test_eval2() {
         for (size_t j = 0; j < bas_size; j++)
             av_e += trial_state_full[i] * trial_state_full[j] * h_full.matrix(i, j);
 
-    printf("Energy of the trial expanded in the full basis is %18.10f\n", av_e / (t_norm * t_norm));
-    printf("Trial energy from CI is %18.10f\n", trial_e);
-    printf("Norm is %18.10f\n", t_norm);
+    if (verbose) {
+        printf("(MixedBasisEstimator) Energy of the trial expanded in the full basis is %18.10f\n", av_e / (t_norm * t_norm));
+        printf("(MixedBasisEstimator) Trial energy from CI is %18.10f\n", trial_e);
+        printf("(MixedBasisEstimator) Norm is %18.10f\n", t_norm);
+    }
 
     for ( size_t idet = 0; idet < bas_size; idet++) {
         // If a single test fails - testing will stop

@@ -1,6 +1,7 @@
 #include "qfciqmc_mpi.h"
 #include "qrandom_seed.h"
 #include <vector>
+#include <algorithm>
 #include <cstdlib>
 #include <limits>
 #include <fstream>
@@ -27,8 +28,12 @@ FCIQMC_mpi::FCIQMC_mpi(std::map<string, int> &p, std::map<string, double> &dp, H
     std::fill(local_n_spawned.begin(), local_n_spawned.end(), 0);
     global_n_spawned.resize(size);
     std::fill(global_n_spawned.begin(), global_n_spawned.end(), 0);
-    disp.resize(size);
-    std::fill(disp.begin(), disp.end(), 0);
+    //disp.resize(size);
+    sdisp.resize(size);
+    rdisp.resize(size);
+    //std::fill(disp.begin(), disp.end(), 0);
+    std::fill(sdisp.begin(), sdisp.end(), 0);
+    std::fill(rdisp.begin(), rdisp.end(), 0);
     // Register the Walker structure with MPI
     MPI_Aint displacements[2]  = {offsetof(Walker, det_id), offsetof(Walker, weight)};
     int block_lengths[2]  = {1, 1};
@@ -86,22 +91,20 @@ FCIQMC_mpi::FCIQMC_mpi(std::map<string, int> &p, std::map<string, double> &dp, H
     }
 }
 
+/*
 void FCIQMC_mpi::update_walker_lists() {
     // The function handles communication
     // of the spawned walkers to the assigned processes;
     // requires local_n_spawned and local_spawned to be 
     // set up correctly
 
-    // Run simple checks first; this should be refactored later since it assumes that 
-    // walkers occupying identical basis functions have not been combined
     assert (local_n_spawned.size() == local_spawned.size());
     int total = 0, total_ = 0;
     for (const auto &l : local_spawned) {
         total += l.size();
-        for (const auto &w : l)
-            total_ += abs(w.weight);
     }
 
+    total_ = std::accumulate(local_n_spawned.begin(), local_n_spawned.end(), 0);
     assert (total == total_);
 
     if (debug) {
@@ -158,6 +161,54 @@ void FCIQMC_mpi::update_walker_lists() {
     MPI_Barrier(MPI_COMM_WORLD); // This is needed in order to be able to calculate the local walker counts correctly
 
 }
+*/
+
+void FCIQMC_mpi::update_walker_lists() {
+    // The function handles communication
+    // of the spawned walkers to the assigned processes;
+    // requires local_n_spawned and local_spawned to be 
+    // set up correctly
+
+    assert (local_n_spawned.size() == local_spawned.size());
+    int total = 0, total_ = 0;
+    for (const auto &l : local_spawned) {
+        total += l.size();
+    }
+
+    total_ = std::accumulate(local_n_spawned.begin(), local_n_spawned.end(), 0);
+    assert (total == total_);
+
+    // Obtain walker counts for me in a single AlltoAll call
+    std::fill(global_n_spawned.begin(), global_n_spawned.end(), 0);
+    std::fill(sdisp.begin(), sdisp.end(), 0);
+    std::fill(rdisp.begin(), rdisp.end(), 0);
+    MPI_Alltoall(local_n_spawned.data(), 1, MPI_INT, global_n_spawned.data(), 1, MPI_INT, MPI_COMM_WORLD);
+    // Determine how many walkers the current process receives; resize global_spawned and calculate displacements
+    int total_n_spawned_on_me = std::accumulate(global_n_spawned.begin(), global_n_spawned.end(), 0);
+    global_spawned.resize(total_n_spawned_on_me);
+    for (size_t iproc = 0; iproc < size - 1; iproc++) {
+        rdisp[iproc + 1] = rdisp[iproc] + global_n_spawned[iproc];
+        sdisp[iproc + 1] = sdisp[iproc] + local_n_spawned[iproc];
+    }
+    // Resize local_spawned and communicate walkers using MPI_Alltoallv
+    std::vector<Walker> t_local_spawned;
+    for (size_t iproc = 0; iproc < size; iproc++) 
+        t_local_spawned.insert(t_local_spawned.end(), local_spawned[iproc].begin(), local_spawned[iproc].end());
+    MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Alltoallv(t_local_spawned.data(), local_n_spawned.data(), sdisp.data(), Walker_dt, global_spawned.data(), global_n_spawned.data(), rdisp.data(), Walker_dt, MPI_COMM_WORLD);
+    // Merge all the walkers assigned to me
+    for (const auto &w : global_spawned) {
+        if (m_walker_ensemble.find(w.det_id) != m_walker_ensemble.end()) {
+            m_walker_ensemble[w.det_id] += w.weight;
+        } else {
+            m_walker_ensemble[w.det_id] = w.weight;
+        }
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD); // This is needed in order to be able to calculate the local walker counts correctly
+
+}
+
 
 int FCIQMC_mpi::fnv_hash(const int &src) {
 
@@ -188,9 +239,13 @@ void FCIQMC_mpi::initialize (bool uniform) {
         for (int n = 0; n < m_N; n++) {
             int idx = init_distr(g);
             int proc = fnv_hash(idx);
-            local_n_spawned[proc] += 1;
-            local_spawned[proc].push_back(Walker(idx, 1));
+            Walker new_walker {idx, 1};
+            merge_walker(new_walker, local_spawned[proc]);
+            assert (std::is_sorted(local_spawned[proc].begin(), local_spawned[proc].end(), comp_less));
 	}
+
+        for (size_t iproc = 0; iproc < size; iproc++)
+            local_n_spawned[iproc] = local_spawned[iproc].size();
 
         MPI_Barrier(MPI_COMM_WORLD);
         update_walker_lists();
@@ -238,9 +293,14 @@ void FCIQMC_mpi::initialize (bool uniform) {
             //std::cout << tr_det << std::endl;
             int sign = guess_wfn[tr_det] > 0 ? 1 : -1;
             int proc = fnv_hash(tr_gb.get_id(tr_det));
-            local_n_spawned[proc] += 1;
-            local_spawned[proc].push_back(Walker((int)tr_gb.get_id(tr_det), sign));
+            Walker new_walker {(int)tr_gb.get_id(tr_det), sign};
+            merge_walker(new_walker, local_spawned[proc]);
+            assert (std::is_sorted(local_spawned[proc].begin(), local_spawned[proc].end(), comp_less));
         }
+
+        for (size_t iproc = 0; iproc < size; iproc++) 
+            local_n_spawned[iproc] = local_spawned[iproc].size();
+
         MPI_Barrier(MPI_COMM_WORLD);
         update_walker_lists();
         m_N = 0; // We need to redefine the local number of walkers on the current process
@@ -298,6 +358,8 @@ void FCIQMC_mpi::run() {
 	if (B < 0)
             B = 1.0; // default damping parameter for population control
 
+        double t_equil, t_prod;
+
         // Running statistics (GSL)
         gsl_rstat_workspace *rstat_m, *rstat_g;
         if (me == 0) {
@@ -310,6 +372,8 @@ void FCIQMC_mpi::run() {
             printf( "---------------------- Equilibration run --------------------\n");
             std::cout.flush();
         }
+
+        t_equil = -MPI_Wtime();
 
         for (size_t iblock = 0; iblock < m_N_equil; iblock++) {
 	    int N_after, N_before = m_N_global; // Global has to be up-to-date
@@ -339,6 +403,8 @@ void FCIQMC_mpi::run() {
             }
         }
 
+        t_equil += MPI_Wtime();
+
         //MPI_Barrier(MPI_COMM_WORLD);
 
 	// Production run
@@ -347,6 +413,8 @@ void FCIQMC_mpi::run() {
             printf( "---------------------- Production run ------------------------\n");
             std::cout.flush();
         }
+
+        t_prod = -MPI_Wtime();
 
         for (size_t iblock = 0; iblock < m_N_blocks; iblock++) {
 	    int N_after, N_before = m_N_global;
@@ -393,10 +461,23 @@ void FCIQMC_mpi::run() {
             }
         }
 
+        t_prod += MPI_Wtime();
+
         if (me == 0) {
             gsl_rstat_free(rstat_m);
             gsl_rstat_free(rstat_g);
         }
+
+        MPI_Barrier(MPI_COMM_WORLD);
+        double t_prod_, t_equil_; // recv buffers
+        MPI_Reduce(&t_equil, &t_equil_, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&t_prod, &t_prod_, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+
+        if (me == 0) {
+            printf("(FCIQMC_mpi) Maximum equilibration run time %20.2f s\n", t_equil_);
+            printf("(FCIQMC_mpi) Maximum production run time %20.2f s\n", t_prod_);
+        }
+        
 }
 
 void FCIQMC_mpi::run_step(bool verbose) {
@@ -414,8 +495,10 @@ void FCIQMC_mpi::run_step(bool verbose) {
 
     std::fill(local_n_spawned.begin(), local_n_spawned.end(), 0); 
     // For added safety?
-    for (size_t pid = 0; pid < size; pid++)
+    for (size_t pid = 0; pid < size; pid++) {
         local_spawned[pid].resize(0);
+        assert (local_spawned[pid].size() == 0);
+    }
 
     for (auto &w : m_walker_ensemble) {
         //const size_t i = w.first;
@@ -434,14 +517,12 @@ void FCIQMC_mpi::run_step(bool verbose) {
             double ps = abs(h) * dt * (basis_size - 1); 
             int survivors = int(ps);
             if (ps - survivors > u(g)) survivors++;
+            if (verbose) std::cout << "Spawned " << survivors << " on det # " << j << std::endl;
             int proc = fnv_hash(j);
-            local_n_spawned[proc] += survivors;
             total_spawned += survivors;
-            
-            if (local_spawned[proc].size() < local_n_spawned[proc]) local_spawned[proc].resize(local_n_spawned[proc]);
-            for (size_t k = local_n_spawned[proc] - survivors; k < local_n_spawned[proc]; k++) 
-                local_spawned[proc][k] = Walker((int)j, sign);
-            
+            Walker new_walkers {(int)j, sign * survivors};
+            merge_walker(new_walkers, local_spawned[proc]);
+            assert (std::is_sorted(local_spawned[proc].begin(), local_spawned[proc].end(), comp_less));
         }
         //std::cout << "Finished spawning for walker # " << i << endl;
         // Birth-death process
@@ -469,6 +550,11 @@ void FCIQMC_mpi::run_step(bool verbose) {
             w.second = (n_walkers + nkill) * sign_ref;
         }
     }
+
+    // Since the walker counts cannot be defined during spawning process itself 
+    // we have to calculate them afterward based on the content of the local_spawned
+    for (size_t iproc = 0; iproc < size; iproc++) 
+        local_n_spawned[iproc] = local_spawned[iproc].size();
 
     // Perform some obvious checks
     assert (N_pr == N_0);

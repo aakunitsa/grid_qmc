@@ -11,13 +11,18 @@
 #include "qorbitals.h"
 #include "qparams_reader.h"
 
+#ifdef USE_MPI
+#include <mpi.h>
+#endif
+
 class Estimator {
     protected:
 	Integral_factory &ig;
         Basis &bas_full;
 	Hamiltonian h_full;
+        bool verbose;
     public:
-        Estimator(Integral_factory &ig_, Basis &bas_full_) : ig(ig_), bas_full(bas_full_), h_full(ig, bas_full) {} 
+        Estimator(Integral_factory &ig_, Basis &bas_full_) : ig(ig_), bas_full(bas_full_), h_full(ig, bas_full), verbose(true) {} 
         virtual std::tuple<double, double> eval (std::vector<double> &wf) = 0;
         virtual std::tuple<double, double> eval (size_t idet) = 0;
 };
@@ -55,6 +60,11 @@ class ProjEstimator : public Estimator {
 
 	public:
 		ProjEstimator(std::map<string, int> &p, Integral_factory &int_f, Basis &bas) : Estimator(int_f, bas) {
+#ifdef USE_MPI
+                    int me;
+                    MPI_Comm_rank(MPI_COMM_WORLD, &me);
+                    if(me != 0) verbose = false;
+#endif
                     auto d = h_full.build_diagonal();
                     size_t subspace_size = std::min(bas_full.get_basis_size(), size_t(p["fciqmc_projection_subspace"]));
                     if (subspace_size <= 0) subspace_size = 1;
@@ -67,8 +77,8 @@ class ProjEstimator : public Estimator {
 			auto v = h_proj.get_wfn();
 			std::copy(v.begin(), v.end(), trial_state.begin());
                     }
-                    printf("Energy of the trial function inside ProjEstimator is %13.6f\n", trial_e);
-		    printf("Basis size inside ProjEstimator is %zu\n", tr_basis->get_basis_size());
+                    if (verbose) printf("(ProjEstimator) Energy of the trial function is %13.6f\n", trial_e);
+		    if (verbose) printf("(ProjEstimator) Basis size inside ProjEstimator is %zu\n", tr_basis->get_basis_size());
 		}
 		std::tuple<double, double>  eval(std::vector<double> &wf) {
 		   	// Full w.f. version
@@ -114,7 +124,6 @@ class ProjEstimator : public Estimator {
                 ~ProjEstimator() {
                     delete tr_basis;
                 }
-			
 };
 
 

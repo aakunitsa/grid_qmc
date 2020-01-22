@@ -22,6 +22,8 @@ struct Walker {
     int weight;
 };
 
+inline bool comp_less (const Walker &w1, const Walker &w2) { return w1.det_id < w2.det_id; }
+
 class FCIQMC_mpi {
 #ifdef MT64
 	typedef std::mt19937_64 random_engine; // Should be defined at compile time; will use this for now
@@ -36,12 +38,13 @@ class FCIQMC_mpi {
         int me, size;
         int local_it_count = 0; // local iteration count for debugging purposes
 	std::map<string, int> &par;
-        //std::unordered_map<int, int> m_walker_ensemble;
-        std::map<int, int> m_walker_ensemble;
+        std::unordered_map<int, int> m_walker_ensemble;
+        //std::map<int, int> m_walker_ensemble;
         std::vector< std::vector<Walker> > local_spawned; // Stores the determinants asigned to all ranks
         std::vector<Walker> global_spawned; // Needed to store the walkers collected from all ranks and assigned to "me"
         std::vector<int> local_n_spawned, global_n_spawned;
-        std::vector<int> disp; // For MPI_Gatherv
+        //std::vector<int> disp; // For MPI_Gatherv
+        std::vector<int> sdisp, rdisp; // For MPI_Alltoallv
 
 
         int m_N_global, m_N;
@@ -72,7 +75,19 @@ class FCIQMC_mpi {
         int fnv_hash(const int &src); // Determines the assignment of the determinant
         //std::vector<Walker> compress(std::vector<Walker> &v); // Compresses a list of walkers to minimize communication
         void update_walker_lists();
-
+        void merge_walker(Walker &new_walker, std::vector<Walker> &v) {
+            auto up = std::upper_bound(v.begin(), v.end(), new_walker, comp_less);
+            if (up != v.begin()) {
+                auto prev = std::prev(up);
+                if (prev->det_id == new_walker.det_id) {
+                    prev->weight += new_walker.weight;
+                } else {
+                    v.insert(up, new_walker);
+                }
+            } else {
+                v.insert(up, new_walker);
+            }
+        }
 
     public:
 
