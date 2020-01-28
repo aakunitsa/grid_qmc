@@ -40,6 +40,10 @@ Becke_grid::Becke_grid(std::map<string, int> &p) : nrad(p["nrad"]), nang(p["nang
     gridw_a.resize(nang);
     xyz_ang.resize(nang);
     thetaphi_ang.resize(nang);
+    // Set atomic radius
+    r_at = r_m[int(p["Z"]) - 1]; 
+    printf("Atomic charge is %d", int(p["Z"]));
+    printf("Atomic radius is %13.6f", r_at);
 
     printf("Building radial grid... ");
     build_radial();
@@ -52,7 +56,6 @@ Becke_grid::Becke_grid(std::map<string, int> &p) : nrad(p["nrad"]), nang(p["nang
 
 void Becke_grid::build_radial() {
 
-    r_at = r_m[1]; // always He for now...
     vector<int> idx (nrad);
     iota(idx.begin(), idx.end(), 1);
     for (size_t i = 0; i < nrad; i++) {
