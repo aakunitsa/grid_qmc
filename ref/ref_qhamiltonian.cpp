@@ -1,4 +1,4 @@
-#include "qhamiltonian.h"
+#include "ref_qhamiltonian.h"
 #include <assert.h>
 #include <cstdio>
 #include <algorithm>
@@ -27,9 +27,9 @@
 //#define ALPHA 1 // Defined in the header file now
 //#define BETA 0
 
+namespace REF {
 
-
-Basis::Basis(std::map<string, int> &p, int n1porb_) : n1porb(n1porb_), nel(p["electrons"]) {
+Basis::Basis(std::map<string, int> &p, int n1porb_) : n1porb(n1porb_) {
 
 	// Note : n1porb does not have to coincide with the parameter in the Integral_factory 
 	//        class; For now I will leave it up to a programmer to ensure that
@@ -63,12 +63,90 @@ Basis::Basis(std::map<string, int> &p, int n1porb_) : n1porb(n1porb_), nel(p["el
 
 	assert ( nalpha + nbeta == nel ) ;
 
-        // Consruct encoders
-        a_encoder = DET::ABStrings_simple(nalpha, n1porb, false);
-        b_encoder = DET::ABStrings_simple(nbeta, n1porb, false);
 }
 
 void DetBasis::build_basis() {
+
+    printf("Number of orbitals %10d\n", n1porb); // Those are spatial orbitals; contrast with QMC_grid
+
+    gsl_combination *c;
+
+    if (nalpha != 0) {
+        //printf("The number of alpha electrons is %5d\n", nalpha);
+        c = gsl_combination_calloc(n1porb, nalpha); // Note that calloc is used to initialize c so it contains (1, 2, 3, ....)
+        do {
+            size_t *c_ind = gsl_combination_data(c);
+			std::vector<size_t> l ( c_ind, c_ind + nalpha );
+            assert (l.size() == nalpha);
+            alpha_str.push_back(l);
+        } while (gsl_combination_next(c) == GSL_SUCCESS);
+        gsl_combination_free(c);
+        printf("Generated %5zu alpha strings\n", alpha_str.size());
+		printf("Checking strings... ");
+
+		for (const auto &s : alpha_str )
+			for (const auto &o : s)
+				assert ( o < n1porb );
+
+		printf("done!\n");
+
+    } 
+
+
+#ifdef DEBUG_BAS
+	// Print the full list of alpha strings
+	std::cout << " The list of alpha strings will be printed below " << std::endl;
+	for (size_t i = 0; i < alpha_str.size(); i++) {
+		for (size_t j = 0; j < nalpha; j++) 
+			std::cout << alpha_str[i][j] << '\t';
+
+		std::cout << std::endl;
+	}
+
+#endif
+    
+    if (nbeta != 0) {
+        //printf("The number of beta electrons is %5d\n", nbeta);
+        c = gsl_combination_calloc(n1porb, nbeta);
+        do {
+            size_t *c_ind = gsl_combination_data(c);
+			std::vector<size_t> l ( c_ind, c_ind + nbeta );
+            assert (l.size() == nbeta);
+            beta_str.push_back(l);
+        } while (gsl_combination_next(c) == GSL_SUCCESS);
+        gsl_combination_free(c);
+        printf("Generated %5zu beta strings\n", beta_str.size());
+		printf("Checking strings... ");
+
+		for (const auto &s : beta_str )
+			for (const auto &o : s)
+				assert ( o < n1porb );
+
+		printf("done!\n");
+
+    } 
+
+#ifdef DEBUG_BAS
+	// Print the full list of beta strings
+	std::cout << " The list of beta strings will be printed below " << std::endl;
+	for (size_t i = 0; i < beta_str.size(); i++) {
+		for (size_t j = 0; j < nbeta; j++) 
+			std::cout << beta_str[i][j] << '\t';
+
+		std::cout << std::endl;
+	}
+
+#endif
+// This should be moved to the Hamiltonian class; will keep it here temporarily
+/*
+	std::cout << "Calculating H diagonal " << std::endl; // Will later be used by DAvidson solver
+	H_diag = build_diagonal();
+    // This is temporary
+	std::sort(H_diag.begin(), H_diag.end());	
+	std::cout << "The diagonal part of the hamiltonian will be printed below " << std::endl;
+	for (auto &h : H_diag)
+    	printf("%20.10f\n", h);
+*/
 
 	std::cout << "Generating connectivity list for the basis " << std::endl;
 	size_t bas_size = get_basis_size();
@@ -633,7 +711,7 @@ double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 
 	auto [nalpha, nbeta] = bas.get_ab();
 
-	const std::vector<size_t> &i_s = (type == ALPHA ? bas.a(idet) : bas.b(idet)),
+	std::vector<size_t> &i_s = (type == ALPHA ? bas.a(idet) : bas.b(idet)),
 		                &j_s = (type == ALPHA ? bas.a(jdet) : bas.b(jdet));
 
 	// the rules here will be more complicated compared to the core hamiltonian case
@@ -747,7 +825,7 @@ double Hamiltonian::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja, si
 
 	auto [nalpha, nbeta] = bas.get_ab();
 
-	const auto &ia_s = bas.a(ia), 
+	auto &ia_s = bas.a(ia), 
 		 &ib_s = bas.b(ib),
 		 &ja_s = bas.a(ja),
 		 &jb_s = bas.b(jb);
@@ -790,7 +868,7 @@ double Hamiltonian::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja, si
 
 }
 
-
+}
 
 
 

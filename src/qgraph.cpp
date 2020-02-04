@@ -1,8 +1,15 @@
 #include "qgraph.h"
 #include <cassert>
 #include <cstdio>
+#include <gsl/gsl_combination.h>
+#include <algorithm>
+#include <iostream>
 
 // Helper functions first
+// Note: the basics of alpha/beta string encoding for determinant FCI can be found in 
+// T. Helgaker Molecular electronic-structure theory p. 555
+// The following implementation produces string address starting from 0; same applies to 
+// orbital indeces, however "internally" the orbitals are indexed starting from 1
 
 std::vector<size_t> DET::ABStrings::get_parents(const std::tuple<size_t, size_t> &pvertex) {
     auto& [k, m] = pvertex;
@@ -110,7 +117,7 @@ std::vector<size_t> DET::ABStrings::a2s(const std::tuple<size_t, size_t> &pverte
             if (new_remaining_weight > 0 && new_remaining_weight <= vertex_weights[p]) {
                 auto orbitals_ = a2s(std::make_tuple(k1, m1), new_remaining_weight);
                 orbitals.insert(orbitals.end(), orbitals_.begin(), orbitals_.end());
-                orbitals.push_back(k - 1);
+                orbitals.push_back(k - 1); // This is done in order to conform to our C/C++ conventions; see above
             }
         } else {
             if (remaining_weight <= vertex_weights[p]) {
@@ -122,3 +129,72 @@ std::vector<size_t> DET::ABStrings::a2s(const std::tuple<size_t, size_t> &pverte
     return orbitals;
 }
 
+
+// The following defines the ABStrings_simple class methods
+// Auxiliary structure
+struct lex_compare {
+    public:
+        bool operator()(const std::vector<size_t> &s1, const std::vector<size_t> &s2) {
+            assert (s1.size() == s2.size());
+            auto nel = s1.size();
+            for (size_t i = 0; i< nel; i++)
+                if (s1[i] != s2[i]) return s1[i] < s2[i];
+            return false;
+        }
+};
+
+// Public methods
+
+DET::ABStrings_simple::ABStrings_simple(int nel_, int norb_, bool verbose_ = true) : nel(nel_), norb(norb_), verbose(verbose_) {
+    // Sanity check
+    assert (norb >= nel);
+    // Put togather a string list 
+    nstrings = construct_strings();
+}
+
+std::vector<size_t> DET::ABStrings_simple::address2str(int i) {
+    assert (i < nstrings);
+    return det_str[i];
+}
+
+int DET::ABStrings_simple::str2address(std::vector<size_t> &s) {
+    // Will perform binary search assuming that string list is lexically ordered
+    // Warning: this will extremely expensive for large sets of orbital strings
+    lex_compare comp;
+    assert (std::is_sorted(det_str.begin(), det_str.end(), comp));
+    assert (std::binary_search(det_str.begin(), det_str.end(), s, comp));
+    auto low = std::lower_bound(det_str.begin(), det_str.end(), s, comp);
+    return std::distance(det_str.begin(), low);
+}
+
+
+// Private methods
+
+size_t DET::ABStrings_simple::construct_strings() {
+
+    gsl_combination *c = gsl_combination_calloc(norb, nel); // Note that calloc is used to initialize c so it contains (0, 1, 2, 3, ....)
+    do {
+        size_t *c_ind = gsl_combination_data(c);
+        std::vector<size_t> l ( c_ind, c_ind + nel );
+        assert (l.size() == nel);
+        det_str.push_back(l);
+    } while (gsl_combination_next(c) == GSL_SUCCESS);
+    gsl_combination_free(c);
+    // Quick check
+    for (const auto &s : det_str )
+        for (const auto &o : s)
+            assert ( o < norb );
+
+    if (verbose) {
+        // Print the full list of beta strings
+        std::cout << " The list of strings will be printed below " << std::endl;
+        for (size_t i = 0; i < det_str.size(); i++) {
+            for (size_t j = 0; j < nel; j++) 
+                std::cout << det_str[i][j] << '\t';
+
+            std::cout << std::endl;
+        }
+    }
+
+    return det_str.size();
+}

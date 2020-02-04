@@ -5,6 +5,7 @@
 #include <vector>
 #include <tuple>
 #include <cassert>
+#include <utility>
 
 namespace DET {
     class ABStrings {
@@ -13,9 +14,21 @@ namespace DET {
                 nstrings = calculate_vertex_weights();
                 calculate_edge_weights();
             }
+            ABStrings() : nel(1), norb(1), verbose(false) {
+                nstrings = calculate_vertex_weights();
+                calculate_edge_weights();
+            }
+            ABStrings(const ABStrings &other) : 
+                nel(other.nel), norb(other.norb), 
+                verbose(other.verbose), nstrings(other.nstrings),  
+                vertex_weights(other.vertex_weights), edge_weights(other.edge_weights) { }
+            ABStrings(ABStrings &&other) :
+                nel(other.nel), norb(other.norb), 
+                verbose(other.verbose), nstrings(other.nstrings),  
+                vertex_weights(std::move(other.vertex_weights)), edge_weights(std::move(other.edge_weights)) { }
             size_t nstrings; // Can be used within the Basis class
             std::vector<size_t> address2str(int id) {
-                return a2s(std::make_tuple((size_t)norb, (size_t)nel), id);
+                return a2s(std::make_tuple((size_t)norb, (size_t)nel), id + 1);
             }
             int str2address(std::vector<size_t> &s) {
                 assert (s.size() == (size_t)nel);
@@ -24,7 +37,7 @@ namespace DET {
                     auto o = s[i];
                     address += (int)edge_weights[pair2idx(std::make_tuple(o + 1, i + 1))];
                 }
-                return address;
+                return address - 1;
             }
 
         private:
@@ -53,6 +66,43 @@ namespace DET {
             void vertex_weight(size_t vertex, std::unordered_map<size_t, size_t> &vweights); 
             // Private recursive function converting address to string; should be called from inside the address2str
             std::vector<size_t> a2s(const std::tuple<size_t, size_t> &pvertex, int remaining_weight);
+    };
+
+// The following class is memory hungry and should mostly be used for testing purposes
+    class ABStrings_simple {
+        public:
+            ABStrings_simple(int nel_, int norb_, bool verbose_);
+            ABStrings_simple() : nel(1), norb(1), verbose(false) {
+                nstrings = 1;
+                det_str.push_back(std::vector<size_t>({0}));
+            }
+            ABStrings_simple(const ABStrings_simple &other) : 
+                nel(other.nel), norb(other.norb), 
+                verbose(other.verbose), nstrings(other.nstrings),  
+                det_str(other.det_str) {
+            }
+            ABStrings_simple& operator=(const ABStrings_simple &other) { 
+                nel = other.nel; 
+                norb = other.norb;
+                verbose = other.verbose; 
+                nstrings = other.nstrings;
+                if (det_str.size() > 0) det_str.resize(0);
+                det_str.insert(det_str.end(), other.det_str.begin(), other.det_str.end()); 
+                return *this;
+            }
+            ABStrings_simple(ABStrings_simple &&other) :
+                nel(other.nel), norb(other.norb), 
+                verbose(other.verbose), nstrings(other.nstrings),  
+                det_str(std::move(other.det_str)) {
+            }
+            size_t nstrings; // Can be used within the Basis class
+            std::vector<size_t> address2str(int id);
+            int str2address(std::vector<size_t> &s);
+        private:
+            std::vector< std::vector<size_t> > det_str;
+            int nel, norb; // Note that we should always have  norb >= nel
+            bool verbose;
+            size_t construct_strings();
     };
 }
 

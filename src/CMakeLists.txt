@@ -62,12 +62,13 @@ target_sources(grid_qmc.x
     qfciqmc_simple.cpp
     qhamiltonian.cpp
     qintegral.cpp
+    qgraph.cpp
     ${optional_sources}
   )
 
 
 target_link_libraries(grid_qmc.x
-  PRIVATE
+    PUBLIC
     poisson_solver
 	utils
 	lebedev_grid

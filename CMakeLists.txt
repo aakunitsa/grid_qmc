@@ -33,7 +33,10 @@ add_subdirectory(src)
 #set(CMAKE_Fortran_MODULE_DIRECTORY 
 #	${PROJECT_BINARY_DIR}/modules)
 
+# This is a first attempt to add proper tests to the project
 
+add_subdirectory(ref)
+add_subdirectory(testing)
 
 
 
