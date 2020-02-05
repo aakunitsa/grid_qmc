@@ -1,0 +1,7 @@
+Z = 2
+nel = 2
+mult = 3
+L_max = 0
+nrad = 25
+nang = 14
+fciqmc_projection_space = 10

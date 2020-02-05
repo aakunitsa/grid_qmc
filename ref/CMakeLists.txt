@@ -13,6 +13,7 @@ target_sources(ref_methods
         ${CMAKE_SOURCE_DIR}/src/qintegral.cpp
         ${CMAKE_SOURCE_DIR}/src/qparams_reader.cpp
         ${CMAKE_SOURCE_DIR}/src/qgraph.cpp
+        ${CMAKE_SOURCE_DIR}/src/qestimator.cpp
 	)
 
 target_include_directories(ref_methods

@@ -28,9 +28,11 @@ namespace DET {
                 vertex_weights(std::move(other.vertex_weights)), edge_weights(std::move(other.edge_weights)) { }
             size_t nstrings; // Can be used within the Basis class
             std::vector<size_t> address2str(int id) {
+                if (nel == 0) return std::vector<size_t>(0);
                 return a2s(std::make_tuple((size_t)norb, (size_t)nel), id + 1);
             }
             int str2address(std::vector<size_t> &s) {
+                if (nel == 0) return -1; // The function should never be called if the number of electrons is 0!!
                 assert (s.size() == (size_t)nel);
                 int address = 1;
                 for (size_t i = 0; i < (size_t)nel; i++) {

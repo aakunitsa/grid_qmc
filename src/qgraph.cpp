@@ -44,6 +44,7 @@ std::vector<size_t> DET::ABStrings::get_parents(const std::tuple<size_t, size_t>
 // High level calculate_* functions
 
 size_t DET::ABStrings::calculate_vertex_weights() {
+    if (nel == 0) return 0;
     std::vector<size_t> vertex_labels;
     for (size_t m = 0; m < (size_t)nel + 1; m++) {
         for (size_t k = m; k < (size_t)norb - (size_t)nel + m + 1; k++) 
@@ -66,6 +67,8 @@ size_t DET::ABStrings::calculate_vertex_weights() {
 }
 
 void DET::ABStrings::calculate_edge_weights() {
+
+    if (nel == 0) return;
 
     int k, m;
 
@@ -171,6 +174,8 @@ int DET::ABStrings_simple::str2address(std::vector<size_t> &s) {
 // Private methods
 
 size_t DET::ABStrings_simple::construct_strings() {
+
+    if (nel == 0) return 0;
 
     gsl_combination *c = gsl_combination_calloc(norb, nel); // Note that calloc is used to initialize c so it contains (0, 1, 2, 3, ....)
     do {

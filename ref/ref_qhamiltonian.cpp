@@ -56,10 +56,10 @@ Basis::Basis(std::map<string, int> &p, int n1porb_) : n1porb(n1porb_) {
 
 	// I will remove the printout later since it will reappear every time when we construct the class
 
-	std::cout << "Based one the combination of charge/multiplicity from the input file: " << std::endl;
-	std::cout << "=> The number of alpha electrons is " << nalpha << std::endl;
-	std::cout << "=> The number of beta electrons is " << nbeta << std::endl;
-	std::cout << "=> Multiplicity : " << mult << std::endl; 
+	std::cout << "(REF) Based one the combination of charge/multiplicity from the input file: " << std::endl;
+	std::cout << "=> (REF) The number of alpha electrons is " << nalpha << std::endl;
+	std::cout << "=> (REF) The number of beta electrons is " << nbeta << std::endl;
+	std::cout << "=> (REF) Multiplicity : " << mult << std::endl; 
 
 	assert ( nalpha + nbeta == nel ) ;
 
@@ -67,7 +67,7 @@ Basis::Basis(std::map<string, int> &p, int n1porb_) : n1porb(n1porb_) {
 
 void DetBasis::build_basis() {
 
-    printf("Number of orbitals %10d\n", n1porb); // Those are spatial orbitals; contrast with QMC_grid
+    printf("(REF) Number of orbitals %10d\n", n1porb); // Those are spatial orbitals; contrast with QMC_grid
 
     gsl_combination *c;
 
@@ -76,19 +76,18 @@ void DetBasis::build_basis() {
         c = gsl_combination_calloc(n1porb, nalpha); // Note that calloc is used to initialize c so it contains (1, 2, 3, ....)
         do {
             size_t *c_ind = gsl_combination_data(c);
-			std::vector<size_t> l ( c_ind, c_ind + nalpha );
+            std::vector<size_t> l ( c_ind, c_ind + nalpha );
             assert (l.size() == nalpha);
             alpha_str.push_back(l);
         } while (gsl_combination_next(c) == GSL_SUCCESS);
         gsl_combination_free(c);
-        printf("Generated %5zu alpha strings\n", alpha_str.size());
-		printf("Checking strings... ");
+        printf("(REF) Generated %5zu alpha strings\n", alpha_str.size());
+	printf("(REF) Checking strings... ");
+	for (const auto &s : alpha_str )
+            for (const auto &o : s)
+                assert ( o < n1porb );
 
-		for (const auto &s : alpha_str )
-			for (const auto &o : s)
-				assert ( o < n1porb );
-
-		printf("done!\n");
+        printf("done!\n");
 
     } 
 
@@ -115,27 +114,22 @@ void DetBasis::build_basis() {
             beta_str.push_back(l);
         } while (gsl_combination_next(c) == GSL_SUCCESS);
         gsl_combination_free(c);
-        printf("Generated %5zu beta strings\n", beta_str.size());
-		printf("Checking strings... ");
-
-		for (const auto &s : beta_str )
-			for (const auto &o : s)
-				assert ( o < n1porb );
-
-		printf("done!\n");
-
+        printf("(REF) Generated %5zu beta strings\n", beta_str.size());
+	printf("(REF) Checking strings... ");
+	for (const auto &s : beta_str )
+            for (const auto &o : s)
+		assert ( o < n1porb );
+	printf("done!\n");
     } 
 
 #ifdef DEBUG_BAS
 	// Print the full list of beta strings
 	std::cout << " The list of beta strings will be printed below " << std::endl;
 	for (size_t i = 0; i < beta_str.size(); i++) {
-		for (size_t j = 0; j < nbeta; j++) 
-			std::cout << beta_str[i][j] << '\t';
-
-		std::cout << std::endl;
+            for (size_t j = 0; j < nbeta; j++) 
+		std::cout << beta_str[i][j] << '\t';
+            std::cout << std::endl;
 	}
-
 #endif
 // This should be moved to the Hamiltonian class; will keep it here temporarily
 /*
@@ -151,17 +145,17 @@ void DetBasis::build_basis() {
 	std::cout << "Generating connectivity list for the basis " << std::endl;
 	size_t bas_size = get_basis_size();
 	for (size_t i = 0; i < bas_size; i++) {
-		std::vector<size_t> neigh_list {i};
-		auto [ia, ib] = unpack_str_index(i);
-		for (size_t j = 0; j < bas_size; j++) {
-			if (j == i) continue;
-			auto [ja, jb] = unpack_str_index(j);
-			auto alpha_order = ex_order(ia, ja, ALPHA), beta_order = (nbeta > 0 ? ex_order(ib, jb, BETA) : 0);
-			//assert (alpha_order > 0 && alpha_order < 3);
-			//assert (beta_order == 0);
-			if ((alpha_order == 2 && beta_order == 0) || (alpha_order == 0 && beta_order == 2) || 
-				(alpha_order == 1 && beta_order == 1) || (alpha_order == 1 && beta_order == 0) || 
-				(alpha_order == 0 && beta_order == 1)) neigh_list.push_back(j);
+            std::vector<size_t> neigh_list {i};
+            auto [ia, ib] = unpack_str_index(i);
+            for (size_t j = 0; j < bas_size; j++) {
+		if (j == i) continue;
+                    auto [ja, jb] = unpack_str_index(j);
+                    auto alpha_order = ex_order(ia, ja, ALPHA), beta_order = (nbeta > 0 ? ex_order(ib, jb, BETA) : 0);
+                    //assert (alpha_order > 0 && alpha_order < 3);
+                    //assert (beta_order == 0);
+                    if ((alpha_order == 2 && beta_order == 0) || (alpha_order == 0 && beta_order == 2) || 
+			(alpha_order == 1 && beta_order == 1) || (alpha_order == 1 && beta_order == 0) || 
+			(alpha_order == 0 && beta_order == 1)) neigh_list.push_back(j);
 		}
 		std::sort(neigh_list.begin(), neigh_list.end());
 		clist.push_back(neigh_list);

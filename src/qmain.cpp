@@ -103,131 +103,6 @@ int main(int argc, char **argv) {
 
 */
 
-// Quick test of the new rY function
-//
-/*
-double ythresh = 1e-12;
-
-for (int i = 0; i < ss.size(); i++) {
-	auto o = ss.aorb[i];
-	bool pass = true;
-	for (int a = 0; a < gr.nang; a++) {
-		auto [th, p] = gr.thetaphi_ang[a];
-		auto [re, im ] = Y(o.L, o.M, th, p);
-		auto [re1, im1 ] = Y(o.L, -o.M, th, p);
-		double Y_real = rY(o.L, o.M, th, p);
-
-		std::complex<double> i_ = std::complex(0.0, 1.0),
-			                 Y_real_ = std::complex(0.0, 0.0),
-			                 Yp = std::complex(re, im),
-							 Ym = std::complex(re1, im1);
-
-		if (o.M == 0) pass = pass && ( (abs(re - Y_real) <= ythresh) && (abs(re1 - Y_real) <= ythresh));
-		if (o.M > 0) {
-			Y_real_ = 1./ sqrt(2.) * (Ym + gsl_pow_int(-1., o.M) * Yp);
-			pass = pass && (abs(Y_real - std::real(Y_real_)) <= ythresh) && (abs(std::imag(Y_real_)) <= ythresh);
-		}
-		if (o.M < 0) {
-			Y_real_ = i_/ sqrt(2.) * (Yp - gsl_pow_int(-1., o.M) * Ym);
-			pass = pass && (abs(Y_real - std::real(Y_real_)) <= ythresh) && (abs(std::imag(Y_real_)) <= ythresh);
-		}
-
-		if (!pass) {
-			std::cout << "Test failed for " << std::endl;
-			printf("L = %d M = %d\n", o.L, o.M);
-			std::cout << Y_real << std::endl;
-			std::cout << Y_real_ << std::endl;
-		}
-	}
-
-}
-
-std::cout << "rY passed all the tests!" << std::endl;
-*/
-// Testing Grid_integrals class
-//int num_orb = g_int.n1porb;
-//default_random_engine gen;
-//uniform_int_distribution<int> u(0, num_orb - 1);
-//double thresh = 1e-12;
-
-// Run tests and check if ce and ce_ref produce the same result
-
-/*
-size_t num_tests = 100000;
-std::cout << "Running tests" << std::endl;
-int max_errors = 10, ierr = 0;
-for (size_t i = 0; i < num_tests; i++) {
-	int o[4];
-	for (size_t j = 0; j < 4; j++) o[j] = u(gen);
-	// This is a crude test - I will not analyze the angular 
-	// momenta of the involved orbitals for now
-	
-	double i1, i2;
-	try {
-		i1 = g_int.ce(o[0], o[1], o[2], o[3]);
-	} catch(...) {
-		std::cout << "excpetion when running ce for the following orbitals" << std::endl;
-		for (int k= 0; k < 4; k++) std::cout << o[k] << '\t';
-		std::cout << std::endl;
-		break;
-	}
-	try {
-		i2 = g_int.ce_ref(o[0], o[1], o[2], o[3]);
-	} catch(...) {
-		std::cout << "excpetion when running ce_ref for the following orbitals" << std::endl;
-		for (int k= 0; k < 4; k++) std::cout << o[k] << '\t';
-		std::cout << std::endl;
-		break;
-	}
-	// if all is good -> compare results
-	if (abs(i1 - i2) >= thresh) {
-		ierr++;
-		printf("Absolute error (%16.9e) exceeds the threshold (%16.9e)!\n", abs(i1 - i2), thresh);
-		printf("Reference implementation : %16.9e\n Fast implementation : %16.9e\n", i2, i1);
-		printf("Orbital indeces are listed below\n");
-		for (int k= 0; k < 4; k++) std::cout << o[k] << '\t';
-		std::cout << std::endl;
-		if (ierr > max_errors) break;
-	}
-
-}
-
-std::cout << "Grid_integrals passed all the tests!" << std::endl;
-*/
-
-
-/*
-std::cout << "Timing ce function" << std::endl;
-
-auto t_start = std::chrono::high_resolution_clock::now();
-
-for (size_t i = 0; i < num_tests; i++) {
-	int o[4];
-	for (size_t j = 0; j < 4; j++) o[j] = u(gen);
-	// This is a crude test - I will not analyze the angular 
-	// momenta of the involved orbitals for now
-	
-	double i1;
-	i1 = g_int.ce(o[0], o[1], o[2], o[3]);
-}
-
-auto t_end = std::chrono::high_resolution_clock::now();
-std::cout << "Time " << std::chrono::duration<double, std::milli>(t_end-t_start).count() / 1000 << " s" << std::endl;
-
-std::cout << "Timing ce_ref function " << std::endl;
-t_start = std::chrono::high_resolution_clock::now();
-for (size_t i = 0; i < num_tests; i++) {
-	int o[4];
-	for (size_t j = 0; j < 4; j++) o[j] = u(gen);
-	// This is a crude test - I will not analyze the angular 
-	// momenta of the involved orbitals for now
-	
-	double i1;
-	i1 = g_int.ce_ref(o[0], o[1], o[2], o[3]);
-}
-t_end = std::chrono::high_resolution_clock::now();
-std::cout << "Time " << std::chrono::duration<double, std::milli>(t_end-t_start).count() / 1000 << " s" << std::endl;
-*/
 
 // Testing random seed class
 
@@ -247,12 +122,6 @@ std::cout << "Time " << std::chrono::duration<double, std::milli>(t_end-t_start)
         for (size_t i = 0; i < 100000; i++) dice();
 
     }
-// Here is some output:
-15 x 26 grid with shell set of S and P orbitals
-Timing ce function
-Time 0.0110658 s
-Timing ce_ref function
-Time 169.911 s
 */
 
 #ifndef USE_MPI
@@ -345,54 +214,6 @@ size_t n_states = 10;
 		ProjEstimator proj_en(q.params, g_int, basis);
 		FCIQMC_simple s(q.params, q.dparams, h, basis, proj_en);
 		s.run();
-	} else if (q.params["run_type"] == 3) {
-                std::cout << "Setting up grid integrals in main" << std::endl;
-                Grid_integrals g_int(q.params, ss);
-		// This is a test for the projected estimator
-		DetBasis basis(q.params, g_int.n1porb);
-		Hamiltonian h_full(g_int, basis);
-		auto e_full = h_full.diag(true);
-		auto psi0_full = h_full.get_wfn();
-		// Construct a truncated basis
-		std::cout << "Constructing projected estimator " << std::endl;
-		ProjEstimator proj_en(q.params, g_int, basis);
-		// Test eval for the full wave function
-                {
-                    auto [ e0 , e1 ] = proj_en.eval(psi0_full);
-                    double overlap_thresh = 1e-10;
-                    printf("E0 = %13.6f E1 = %13.6f \n", e0, e1);
-                    assert (abs(e1) >= overlap_thresh); 
-                    printf("Ground state energy from the full H diagonalization: %13.6f\n", e_full[0]);
-                    printf("Ground state energy from the projected esitmator (first method): %13.6f\n", e0 / e1);
-                    // Here I test a different way of calculating energy using projected estimator
-                    // and its eval method operating on single determinants
-                    double num = 0.0, denom = 0.0;
-                    auto n_bf = basis.get_basis_size();
-                    for (size_t i = 0; i < n_bf; i++) {
-                            auto [n_, d_] = proj_en.eval(i);
-                            num += n_ * psi0_full[i];
-                            denom += d_ * psi0_full[i];
-                    }
-                    printf("Ground state energy from the projected esitmator (second method): %13.6f\n", num / denom);
-                }
-                std::cout << "Constructing mixed basis estimator " << std::endl;
-		MixedBasisEstimator mb_en(q, g_int, basis);
-                {
-                    auto [ e0 , e1 ] = mb_en.eval(psi0_full);
-                    double overlap_thresh = 1e-10;
-                    printf("E0 = %13.6f E1 = %13.6f \n", e0, e1);
-                    assert (abs(e1) >= overlap_thresh); 
-                    printf("Ground state energy from the full H diagonalization: %13.6f\n", e_full[0]);
-                    printf("Ground state energy from the projected esitmator (first method): %13.6f\n", e0 / e1);
-                    double num = 0.0, denom = 0.0;
-                    auto n_bf = basis.get_basis_size();
-                    for (size_t i = 0; i < n_bf; i++) {
-                            auto [n_, d_] = mb_en.eval(i);
-                            num += n_ * psi0_full[i];
-                            denom += d_ * psi0_full[i];
-                    }
-                    printf("Ground state energy from the projected esitmator (second method): %13.6f\n", num / denom);
-                }
 	} else if (q.params["run_type"] == 4) {
             // Run FCIQMC in auxiliary basis
                 std::cout << "Setting up auxliliary basis integrals in main" << std::endl;

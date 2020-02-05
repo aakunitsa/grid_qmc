@@ -40,6 +40,8 @@ int main(int argc, char** argv) {
     // Test #4: edge cases
     ABStrings graph11(1,1,true);
     assert (graph11.nstrings == 1);
+    ABStrings graph01(0,1,true);
+    assert (graph01.nstrings == 0);
     // Test #5: move semantics
     auto graph46m = ABStrings(4, 6, false);
     assert (graph46m.nstrings == 15);

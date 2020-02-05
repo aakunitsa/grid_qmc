@@ -36,11 +36,7 @@ Basis::Basis(std::map<string, int> &p, int n1porb_) : n1porb(n1porb_), nel(p["el
 	//        the class works with Hamiltonian as intended, i.e. the orbital labels 
 	//        are interpreted properly
 	
-
-	nel = p["electrons"];
 	size_t mult = p["mult"];
-
-
 	assert (nel > 0 && mult > 0);
 
 	// Make sure that the number of electrons is consisten with
@@ -70,24 +66,24 @@ Basis::Basis(std::map<string, int> &p, int n1porb_) : n1porb(n1porb_), nel(p["el
 
 void DetBasis::build_basis() {
 
-	std::cout << "Generating connectivity list for the basis " << std::endl;
-	size_t bas_size = get_basis_size();
-	for (size_t i = 0; i < bas_size; i++) {
-		std::vector<size_t> neigh_list {i};
-		auto [ia, ib] = unpack_str_index(i);
-		for (size_t j = 0; j < bas_size; j++) {
-			if (j == i) continue;
-			auto [ja, jb] = unpack_str_index(j);
-			auto alpha_order = ex_order(ia, ja, ALPHA), beta_order = (nbeta > 0 ? ex_order(ib, jb, BETA) : 0);
-			//assert (alpha_order > 0 && alpha_order < 3);
-			//assert (beta_order == 0);
-			if ((alpha_order == 2 && beta_order == 0) || (alpha_order == 0 && beta_order == 2) || 
-				(alpha_order == 1 && beta_order == 1) || (alpha_order == 1 && beta_order == 0) || 
-				(alpha_order == 0 && beta_order == 1)) neigh_list.push_back(j);
-		}
+    std::cout << "Generating connectivity list for the basis " << std::endl;
+    size_t bas_size = get_basis_size();
+    for (size_t i = 0; i < bas_size; i++) {
+	std::vector<size_t> neigh_list {i};
+	auto [ia, ib] = unpack_str_index(i);
+	for (size_t j = 0; j < bas_size; j++) {
+            if (j == i) continue;
+		auto [ja, jb] = unpack_str_index(j);
+		auto alpha_order = ex_order(ia, ja, ALPHA), beta_order = (nbeta > 0 ? ex_order(ib, jb, BETA) : 0);
+		//assert (alpha_order > 0 && alpha_order < 3);
+		//assert (beta_order == 0);
+		if ((alpha_order == 2 && beta_order == 0) || (alpha_order == 0 && beta_order == 2) || 
+                    (alpha_order == 1 && beta_order == 1) || (alpha_order == 1 && beta_order == 0) || 
+                    (alpha_order == 0 && beta_order == 1)) neigh_list.push_back(j);
+	}
 		std::sort(neigh_list.begin(), neigh_list.end());
 		clist.push_back(neigh_list);
-	}
+    }
 
 #ifdef DEBUG_BAS
 	// Print connectivity lists for the basis
@@ -264,75 +260,71 @@ std::vector<double> Hamiltonian::diag(bool save_wfn) {
 	// so that one could see if the Davidson solver will perform well in this
 	// case
 
-	auto [ num_alpha_str, num_beta_str ]  = bas.get_num_str();
+    auto [ num_alpha_str, num_beta_str ]  = bas.get_num_str();
     assert ( num_alpha_str != 0 || num_beta_str != 0);
     size_t n_bf = bas.get_basis_size();
-	auto [ nalpha, nbeta ] = bas.get_ab(); // number of alpha and beta electrons
-	size_t nel = nalpha + nbeta; // total number of electrons
+    auto [ nalpha, nbeta ] = bas.get_ab(); // number of alpha and beta electrons
+    size_t nel = nalpha + nbeta; // total number of electrons
 
     gsl_matrix *h_grid = gsl_matrix_calloc(n_bf, n_bf);
     gsl_matrix *eigvecs = gsl_matrix_calloc(n_bf, n_bf);
     gsl_vector *energies = gsl_vector_calloc(n_bf); 
 
-	std::cout << " The size of the N-electron basis set is " << n_bf << std::endl;
-
+    std::cout << " The size of the N-electron basis set is " << n_bf << std::endl;
     printf("Building the matrix...\n");
 
-	double max_d = 0.0, max_offd = 0.0;
-
-
+    double max_d = 0.0, max_offd = 0.0;
 
     for (size_t i = 0; i < n_bf; i++) 
         for (int j = i; j < n_bf; j++) {
-			// Identify alpha/beta strings corresponding to i and j;
+            // Identify alpha/beta strings corresponding to i and j;
+            auto [ ia, ib ] = bas.unpack_str_index(i);
+            auto [ ja, jb ] = bas.unpack_str_index(j);
+            //printf("(%d, %d / %d, %d)\n", ia, ib, ja, jb);
+            //std::cout.flush();
 
-			auto [ ia, ib ] = bas.unpack_str_index(i);
-			auto [ ja, jb ] = bas.unpack_str_index(j);
+            assert ( ia < num_alpha_str && ja < num_alpha_str);
+            if (nbeta > 0) assert (ib < num_beta_str && jb < num_beta_str);
+            if (nbeta == 0) assert (ib == 0 && jb == 0);
 
-			assert ( ia < num_alpha_str && ja < num_alpha_str);
-			if (nbeta > 0) assert (ib < num_beta_str && jb < num_beta_str);
+            double Hij = 0.0;
 
-			double Hij = 0.0;
+            Hij += evaluate_core(ia, ja, ALPHA) * (ib == jb ? 1. : 0.);
+            if (nel > 1) {
+		// Check if the string index is within bounds 
+		assert ( ia < num_alpha_str && ja < num_alpha_str );
+		Hij += evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
+            }
+            if (num_beta_str > 0) {
+		Hij += evaluate_core(ib, jb, BETA)* (ia == ja ? 1. : 0.);
+		if (nel > 1) {
+                    Hij += evaluate_coulomb(ib, jb, BETA) * (ia == ja ? 1. : 0.);
+                    Hij += evaluate_coulomb_coupled(ia, ib, ja, jb); // does not need Kroneker delta
+                }	
+            }
 
-			Hij += evaluate_core(ia, ja, ALPHA) * (ib == jb ? 1. : 0.);
-			if (nel > 1) {
-				// Check if the string index is within bounds 
-				assert ( ia < num_alpha_str && ja < num_alpha_str );
-				Hij += evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
-			}
-			if (num_beta_str > 0) {
-				Hij += evaluate_core(ib, jb, BETA)* (ia == ja ? 1. : 0.);
-				if (nel > 1) {
-					Hij += evaluate_coulomb(ib, jb, BETA) * (ia == ja ? 1. : 0.);
-					Hij += evaluate_coulomb_coupled(ia, ib, ja, jb); // does not need Kroneker delta
-			    }	
-			}
+            if ( i == j ) max_d = std::max(max_d, std::abs(Hij));
+            if ( i != j ) max_offd = std::max(max_offd, std::abs(Hij));
 
-			if ( i == j ) max_d = std::max(max_d, std::abs(Hij));
-			if ( i != j ) max_offd = std::max(max_offd, std::abs(Hij));
+            double thresh = 1e-14;
+            assert(abs(Hij - matrix(i,j)) <= thresh);
 
-			double thresh = 1e-14;
-			assert(abs(Hij - matrix(i,j)) <= thresh);
-
-			gsl_matrix_set(h_grid, i, j, Hij);
-			gsl_matrix_set(h_grid, j, i, Hij);
+            gsl_matrix_set(h_grid, i, j, Hij);
+            gsl_matrix_set(h_grid, j, i, Hij);
         }
 
     printf("Done!\n");
 
 
-	printf("|max Hii| / | max Hij (i != j) | = %20.10f\n", max_d/ max_offd);
+    printf("|max Hii| / | max Hij (i != j) | = %20.10f\n", max_d/ max_offd);
+    double norm2 = 0.0;
 
-	double norm2 = 0.0;
-
-	for (size_t i = 0; i < n_bf; i++ ) {
-		for (size_t j = 0; j < n_bf; j++ ) {
-			norm2 += gsl_matrix_get(h_grid, i, j) *  gsl_matrix_get(h_grid, j, i);
-		}
+    for (size_t i = 0; i < n_bf; i++ ) {
+	for (size_t j = 0; j < n_bf; j++ ) {
+            norm2 += gsl_matrix_get(h_grid, i, j) *  gsl_matrix_get(h_grid, j, i);
 	}
-
-	norm2 = sqrt(norm2);
-
+    }
+    norm2 = sqrt(norm2);
 #ifdef DEBUG
     for (int i = 0; i < n_bf; i++) {
         for (int j = 0; j < n_bf; j++) {
@@ -343,18 +335,16 @@ std::vector<double> Hamiltonian::diag(bool save_wfn) {
     }
 #endif
 
-	printf("Starting full diagonalization... ");
-
+    printf("Starting full diagonalization... ");
     gsl_eigen_symmv_workspace *w  = gsl_eigen_symmv_alloc(n_bf);
     gsl_eigen_symmv(h_grid, energies, eigvecs, w);
 
     gsl_eigen_symmv_sort (energies, eigvecs, GSL_EIGEN_SORT_VAL_ASC);
 
-	printf("Done! \n");
-	// According to GSL manual:
-	printf("The accuracy of the computed eigenvalues is %28.20f \n", std::numeric_limits<double>::epsilon() * norm2);
-	printf("Frobenius norm of the Hamiltonian matrix is %28.20f \n", norm2);
-
+    printf("Done! \n");
+    // According to GSL manual:
+    printf("The accuracy of the computed eigenvalues is %28.20f \n", std::numeric_limits<double>::epsilon() * norm2);
+    printf("Frobenius norm of the Hamiltonian matrix is %28.20f \n", norm2);
 
     vector<double> eigvals;
 
@@ -439,8 +429,8 @@ std::vector<double> Hamiltonian::diag_davidson(size_t nstates) {
 	auto [ num_alpha_str, num_beta_str ]  = bas.get_num_str();
     assert ( num_alpha_str != 0 || num_beta_str != 0);
     size_t n_bf = bas.get_basis_size();
-	auto [ nalpha, nbeta ] = bas.get_ab(); // number of alpha and beta electrons
-	size_t nel = nalpha + nbeta; // total number of electrons
+    auto [ nalpha, nbeta ] = bas.get_ab(); // number of alpha and beta electrons
+    size_t nel = nalpha + nbeta; // total number of electrons
 
     //arma::sp_mat h_grid(n_bf, n_bf, arma::fill::zeros);
     arma::sp_mat h_grid(n_bf, n_bf);
@@ -520,34 +510,47 @@ double Hamiltonian::evaluate_core(size_t is, size_t js, int type) {
 	std::vector<size_t> is_v, js_v;
 	auto [nalpha, nbeta] = bas.get_ab();
 	auto [alpha_str_num, beta_str_num] = bas.get_num_str();
+        //std::cout << "Iside evaluate_core " << std::endl;
 	
 	if (type == ALPHA) {
 
 		assert ( is < alpha_str_num && js < alpha_str_num);
-
 		is_v.resize(nalpha);
 		js_v.resize(nalpha);
 
-		// The following should probably be refactored in the future
+		// The following segfaults if  a/b return by value
+                /*
+		is_v.resize(nalpha);
+		js_v.resize(nalpha);
 
 		std::copy(bas.a(is).begin(), bas.a(is).end(), is_v.begin());
 		std::copy(bas.a(js).begin(), bas.a(js).end(), js_v.begin());
 
 		// Check strings generated by the copy function
-        /*
+        
 		for ( const auto &o : is_v )
-			assert ( o < n1porb );
+			assert ( o < ig.n1porb );
 		for ( const auto &o : js_v )
-			assert ( o < n1porb );
+			assert ( o < ig.n1porb );
 		*/
 
+                const auto &is_t = bas.a(is), &js_t = bas.a(js);
+
+		std::copy(is_t.begin(), is_t.end(), is_v.begin());
+		std::copy(js_t.begin(), js_t.end(), js_v.begin());
+
 	} else if (type  == BETA) {
+
+            /*
 
 		is_v.resize(nbeta);
 		js_v.resize(nbeta);
 
+                // The following segfaults if a/b functios return by value
+
 		std::copy(bas.b(is).begin(), bas.b(is).end(), is_v.begin());
 		std::copy(bas.b(js).begin(), bas.b(js).end(), js_v.begin());
+            */
         
 		/*
 		for ( const auto &o : is_v )
@@ -556,12 +559,16 @@ double Hamiltonian::evaluate_core(size_t is, size_t js, int type) {
 			assert ( o < n1porb );
 		*/
 
+		is_v.resize(nbeta);
+		js_v.resize(nbeta);
+                const auto &is_t = bas.b(is), &js_t = bas.b(js);
+		std::copy(is_t.begin(), is_t.end(), is_v.begin());
+		std::copy(js_t.begin(), js_t.end(), js_v.begin());
 	}
 
 	// Find the differences between the two spin strings and apply Slater rules;
 	// If there is more than two indeces that differ - return 0
 	
-
 	auto [ p, from, to ] = gen_excitation(js_v, is_v);
         /*
         std::cout << "First : ";
@@ -583,6 +590,7 @@ double Hamiltonian::evaluate_core(size_t is, size_t js, int type) {
         std::cout << "Sign " << p << std::endl;
         cout.flush();
         */
+        
 
 	/*
 	for (const auto &o : from)
