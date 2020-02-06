@@ -7,6 +7,7 @@
 #include <random>
 #include <cstdio>
 #include "qhamiltonian.h"
+#include <chrono>
 //#include "ref_qhamiltonian.h"
 
 
@@ -47,8 +48,12 @@ int main(int argc, char **argv) {
     }
     // Part 2: 
     // This is a test for a mixed-basis projected estimator
-    /*
+    
+    auto start = std::chrono::high_resolution_clock::now();    
     MixedBasisEstimator mb_en(q, g_int, basis);
+    auto finish = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed = finish - start;
+    printf("Time to set up a mixed basis estimator %13.3f s\n", elapsed.count());
     {
         auto [ e0 , e1 ] = mb_en.eval(psi0_full);
         assert (abs(e1) >= overlap_thresh); 
@@ -63,7 +68,9 @@ int main(int argc, char **argv) {
         double emb1 = e0 / e1, emb2 = num / denom;
         fail = fail && (abs(emb1 - e_full[0]) > thresh || abs(emb2 - e_full[0]) > thresh);
     }
-    */
+    finish = std::chrono::high_resolution_clock::now();
+    elapsed = finish - start;
+    printf("Time to calculate energy %13.3f s\n", elapsed.count());
 
     return (fail ? 1 : 0);
 

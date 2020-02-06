@@ -19,6 +19,8 @@ void print_vector(const std::vector<size_t> &v) {
 
 int main(int argc, char **argv) {
 
+    {
+
     std::map<std::string, int> params {{"Z", 2}, {"nrad", 10}, {"nang", 14}, {"L_max", 0}, {"mult", 3}, {"electrons", 2}};
     assert (params["electrons"] == 2);
 
@@ -86,6 +88,38 @@ int main(int argc, char **argv) {
         }
     }
 
+    }
+
+
+    // A special case of 25 basis functions is relevant for one of the later tests (simple_fci);
+    // I will perform a string-by-string comparison of the determinants here because of that
+    
+    // Scope it!
+    /*
+    // This will fail since the two encodings schemes produce different addresses
+    {
+
+    std::map<std::string, int> params25S {{"Z", 2}, {"nrad", 25}, {"nang", 6}, {"L_max", 0}, {"mult", 3}, {"electrons", 2}};
+    REF::DetBasis ref_bas25S(params25S, 25);
+    DetBasis bas25S(params25S, 25);
+    auto [na, nb] = bas25S.get_ab();
+    auto [na_, nb_] = ref_bas25S.get_ab();
+    auto nelec = na + nb, nelec_ = na_ + nb_;
+    assert (nelec == nelec_ && na == na_ && nb == nb_);
+
+    assert (bas25S.get_basis_size() == ref_bas25S.get_basis_size() && bas25S.get_basis_size() == 300);
+    auto num_bf = bas25S.get_basis_size(); 
+    for (size_t i = 0; i < num_bf; i++) {
+        auto [ia, ib] = bas25S.unpack_str_index(i);
+        auto [ia_, ib_] = ref_bas25S.unpack_str_index(i);
+        // Since we know that there is no beta strings => just consider alpha
+        const auto &temp_a = bas25S.a(ia);
+        const auto &temp_a_ = ref_bas25S.a(ia_);
+        for (size_t j =0 ; j < na; j++) assert (temp_a[j] == temp_a_[j]);
+    }
+
+    }
+    */
     return 0;
 
 }

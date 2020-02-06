@@ -22,6 +22,19 @@ namespace DET {
                 nel(other.nel), norb(other.norb), 
                 verbose(other.verbose), nstrings(other.nstrings),  
                 vertex_weights(other.vertex_weights), edge_weights(other.edge_weights) { }
+            ABStrings& operator=(const ABStrings &other) { 
+                nel = other.nel; 
+                norb = other.norb;
+                verbose = other.verbose; 
+                nstrings = other.nstrings;
+                // Clean up things created by the default constructor
+                vertex_weights.clear();
+                edge_weights.clear();
+                // Repopulate
+                vertex_weights.insert(other.vertex_weights.begin(), other.vertex_weights.end());
+                edge_weights.insert(other.edge_weights.begin(), other.edge_weights.end());
+                return *this;
+            }
             ABStrings(ABStrings &&other) :
                 nel(other.nel), norb(other.norb), 
                 verbose(other.verbose), nstrings(other.nstrings),  

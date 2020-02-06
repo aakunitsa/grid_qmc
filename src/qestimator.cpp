@@ -18,19 +18,16 @@ MixedBasisEstimator::MixedBasisEstimator(Params_reader &q, Integral_factory &int
     Hamiltonian aux_h_full(*aux_int, *aux_bas_full);
     // Generate a trial vector
     auto d = aux_h_full.build_diagonal();
+    /* 
     {
         auto e = aux_h_full.diag(false);
         if (verbose) std::cout << "(MixedBasisEstimator) The ground state energy of the full Hamiltonian is " << e[0] << std::endl;
     }
+    */
     size_t subspace_size = std::min(aux_bas_full->get_basis_size(), size_t(q.params["fciqmc_projection_subspace"]));
     if (subspace_size <= 0) subspace_size = 1;
-    //std::cout << "Constructing truncated auxiliary basis" << std::endl; 
-    //std::cout << "Subspace size " << subspace_size << std::endl;
     aux_bas_tr = new TruncatedBasis(q.params, aux_int->n1porb, subspace_size, d, *aux_bas_full);
-    //std::cout << "Basis set size is " << aux_bas_tr->get_basis_size() << std::endl;
-    //std::cout << "Construncting the auxiliary space hamiltonian" << std::endl;
     Hamiltonian aux_h_tr(*aux_int, *aux_bas_tr);
-    //std::cout << "Performing diagonalization" << std::endl;
     trial_state.resize(aux_bas_tr->get_basis_size());
     {
         auto e = aux_h_tr.diag(true); // Saving the ground state
@@ -48,14 +45,14 @@ MixedBasisEstimator::MixedBasisEstimator(Params_reader &q, Integral_factory &int
     }
     if (verbose) std::cout << "(MixedBasisEstimator) Ground state energy is " << trial_e << std::endl;
     // Calculate the overlap matrix between the basis vectors 
-    //std::cout << "Calculating the overlap matrix " << std::endl;
+    std::cout << "Calculating the overlap matrix " << std::endl;
     overlap.resize(bas_full.get_basis_size() * aux_bas_tr->get_basis_size());
     // Fast index will correspond to the auxiliary basis
     // Handle 1e, 2e and 3e cases separately
     size_t nel = q.params["electrons"];
     size_t full_bas_size = bas_full.get_basis_size(), aux_bas_size = aux_bas_tr->get_basis_size();
     //std::cout << "Number of electrons " << nel << std::endl;
-    //std::cout << "Aux/full : " << aux_bas_size << "/" << full_bas_size << std::endl;
+    std::cout << "Aux/full : " << aux_bas_size << "/" << full_bas_size << std::endl;
     for (size_t j = 0; j < full_bas_size; j++) {
         for (size_t i = 0; i < aux_bas_size; i++) {
             //std::cout << " In auxiliary basis " << aux_bas_tr->get_id(i) << std::endl;

@@ -12,6 +12,7 @@
 
 #define ALPHA 1
 #define BETA 0
+#define ENCODER DET::ABStrings_simple
 
 // This is just a helper function used by DetBasis and Hamiltonian classes
 
@@ -58,7 +59,7 @@ class Basis {
     protected:
 	int n1porb;
 	size_t nel, nalpha, nbeta;
-        DET::ABStrings_simple a_encoder, b_encoder;
+        ENCODER a_encoder, b_encoder;
 
     public:
 	Basis(std::map<string, int> &p, int n1porb);

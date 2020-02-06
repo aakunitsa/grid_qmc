@@ -60,8 +60,8 @@ Basis::Basis(std::map<string, int> &p, int n1porb_) : n1porb(n1porb_), nel(p["el
 	assert ( nalpha + nbeta == nel ) ;
 
         // Consruct encoders
-        a_encoder = DET::ABStrings_simple(nalpha, n1porb, false);
-        b_encoder = DET::ABStrings_simple(nbeta, n1porb, false);
+        a_encoder = ENCODER(nalpha, n1porb, false);
+        b_encoder = ENCODER(nbeta, n1porb, false);
 }
 
 void DetBasis::build_basis() {
