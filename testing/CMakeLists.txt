@@ -11,12 +11,14 @@ target_link_libraries(grid_ce_test.x ref_methods)
 add_executable(basis_test.x 
     basis.cpp
     ${CMAKE_SOURCE_DIR}/src/qhamiltonian.cpp
+    ${CMAKE_SOURCE_DIR}/src/qbasis.cpp
     )
 target_link_libraries(basis_test.x ref_methods)
 
 add_executable(simple_fci_test.x 
     simple_fci.cpp
     ${CMAKE_SOURCE_DIR}/src/qhamiltonian.cpp
+    ${CMAKE_SOURCE_DIR}/src/qbasis.cpp
     )
 target_link_libraries(simple_fci_test.x ref_methods)
 
@@ -29,6 +31,7 @@ target_link_libraries(simple_fci_test.x ref_methods)
 add_executable(estimators_test.x 
     estimators.cpp 
     ${CMAKE_SOURCE_DIR}/src/qhamiltonian.cpp
+    ${CMAKE_SOURCE_DIR}/src/qbasis.cpp
     )
 target_link_libraries(estimators_test.x ref_methods)
 

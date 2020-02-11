@@ -1,6 +1,6 @@
 #include <iostream>
-#include "ref_qhamiltonian.h"
-#include "qhamiltonian.h"
+#include "ref_qhamiltonian.h" // This contains the classes for various basis types; Should be refactored
+#include "qbasis.h"
 #include "qparams_reader.h"
 #include "qintegral.h"
 #include "qorbitals.h"

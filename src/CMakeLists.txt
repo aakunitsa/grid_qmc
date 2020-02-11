@@ -29,6 +29,7 @@ option(USE_MPi "Enable MPI feartures if an MPI implementation is installed" OFF)
 add_executable(grid_qmc.x "")
 
 set(optional_sources "")
+set(optional_sources1 "")
 
 # Some optional features
 
@@ -48,6 +49,7 @@ if(USE_MPI)
         MPI::MPI_CXX
         )
     set(optional_sources "${CMAKE_CURRENT_SOURCE_DIR}/qfciqmc_mpi.cpp")
+    set(optional_sources1 "${CMAKE_CURRENT_SOURCE_DIR}/qhamiltonian_mpi.cpp")
     add_definitions("-DUSE_MPI")
 endif()
 
@@ -63,7 +65,9 @@ target_sources(grid_qmc.x
     qhamiltonian.cpp
     qintegral.cpp
     qgraph.cpp
+    qbasis.cpp
     ${optional_sources}
+    ${optional_sources1}
   )
 
 

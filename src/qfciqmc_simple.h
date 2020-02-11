@@ -10,6 +10,7 @@
 #include <iostream>
 
 #include "qhamiltonian.h"
+#include "qbasis.h"
 #include "qestimator.h"
 
 

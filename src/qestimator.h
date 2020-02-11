@@ -2,6 +2,7 @@
 #define QESTIMATOR_H
 
 #include "qhamiltonian.h"
+#include "qbasis.h"
 #include "qintegral.h"
 #include <vector>
 #include <tuple>

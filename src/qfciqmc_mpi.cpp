@@ -16,7 +16,7 @@
 
 MPI_Datatype Walker_dt;
 
-FCIQMC_mpi::FCIQMC_mpi(std::map<string, int> &p, std::map<string, double> &dp, Hamiltonian &h, Basis &b, Estimator &e) : gh(h), gb(b), en_proj(e), par(p) {
+FCIQMC_mpi::FCIQMC_mpi(std::map<string, int> &p, std::map<string, double> &dp, Hamiltonian_mpi &h, Basis &b, Estimator &e) : gh(h), gb(b), en_proj(e), par(p) {
 
     local_it_count = 0;
     // Process input parameters and/or set defaults

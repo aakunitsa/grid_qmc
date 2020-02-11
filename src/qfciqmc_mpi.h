@@ -11,7 +11,8 @@
 #include <iostream>
 #include <mpi.h>
 
-#include "qhamiltonian.h"
+#include "qhamiltonian_mpi.h"
+#include "qbasis.h"
 #include "qestimator.h"
 
 
@@ -58,7 +59,7 @@ class FCIQMC_mpi {
         bool debug; // Turns on the verbose mode for run_step; see below and the implementation
 
 	// All the objects below have to be compatible with each other
-        Hamiltonian &gh; // The Hamiltonian has to be compatible with the basis
+        Hamiltonian_mpi &gh; // The Hamiltonian has to be compatible with the basis
 	Basis &gb; 
 	Estimator &en_proj;
 
@@ -91,7 +92,7 @@ class FCIQMC_mpi {
 
     public:
 
-        FCIQMC_mpi(std::map<string, int> &par, std::map<string, double> &dpar, Hamiltonian &h, Basis &b, Estimator &e);
+        FCIQMC_mpi(std::map<string, int> &par, std::map<string, double> &dpar, Hamiltonian_mpi &h, Basis &b, Estimator &e);
         ~FCIQMC_mpi();
 
         // Propagation and energy estimators

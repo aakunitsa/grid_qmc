@@ -3,50 +3,49 @@
 #include <algorithm>
 #include <iostream>
 #include <iomanip>
-#include <armadillo>
 #include <limits>
-#include <gsl/gsl_eigen.h>
-#include <gsl/gsl_vector.h>
-#include <gsl/gsl_sort.h>
-#include <gsl/gsl_matrix.h>
 #include <gsl/gsl_cblas.h>
 #include <tuple> // for tie function
+#include <list>
+#include <array>
+#include <complex>
+
+#include "qorbitals.h"
 #include <gsl/gsl_math.h>
 
-#include "qhamiltonian.h"
-#include "qbasis.h" // This needs to be included in order to be able to use gen_excitation??
+#include "qhamiltonian_mpi.h"
 #include "qintegral.h"
+#include "qbasis.h"
+#include <mpi.h>
+#include <numeric>
 
-//#define ALPHA 1 // Defined in the header file now
-//#define BETA 0
-
-Hamiltonian::Hamiltonian(Integral_factory &int_f, Basis &nel_basis) : ig(int_f), bas(nel_basis) { 
-
-	// Perform simple checks
-	auto basis_size= bas.get_basis_size();
-	assert (basis_size > 0);
-	auto [num_alpha, num_beta] = bas.get_num_str();
-	auto [num_alpha_e, num_beta_e] = bas.get_ab(); 
-	assert (num_alpha > 0);
-	/*
-	// This is not the case for truncated basis in general
-	if (num_beta_e != 0) {
-		assert (num_beta > 0 && (num_beta * num_alpha == basis_size));
-	} else {
-		assert (num_alpha == basis_size);
-	}
-	*/
+extern "C" {
+    void dsyev_(char *, char *, int *, double *, int *, double *, double *, int *, int *);
 }
 
-std::vector<double> Hamiltonian::build_diagonal() {
 
-	std::vector<double> tmp_H_diag(bas.get_basis_size(), 0.0);
+Hamiltonian_mpi::Hamiltonian_mpi(Integral_factory &int_f, Basis &nel_basis) : ig(int_f), bas(nel_basis) { 
+
+    // Detemine my rank and the total number of processes
+
+    MPI_Comm_rank(MPI_COMM_WORLD, &me);
+    MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+
+    // Perform simple checks
+    auto basis_size= bas.get_basis_size();
+    assert (basis_size > 0);
+    auto [num_alpha, num_beta] = bas.get_num_str();
+    assert (num_alpha > 0);
+}
+
+std::vector<double> Hamiltonian_mpi::build_diagonal() {
+
+	std::vector<double> tmp_H_diag(bas.get_basis_size(), 0.0), H_diag(bas.get_basis_size(), 0.0);
 	auto [ nalpha, nbeta ] = bas.get_ab(); // number of alpha and beta electrons
 	size_t nel = nalpha + nbeta; // total number of electrons
 
-	for (size_t i = 0; i < bas.get_basis_size(); i++) {
+	for (size_t i = (size_t)me; i < bas.get_basis_size(); i += (size_t)nprocs) {
 		double Hii = 0.0;
-
 		auto [ ia, ib ] = bas.unpack_str_index(i);
 		auto [num_alpha_str , num_beta_str] = bas.get_num_str(); // provides sizes of alpha and beta string sets
 		//std::cout << " ia " << ia << std::endl;
@@ -70,15 +69,17 @@ std::vector<double> Hamiltonian::build_diagonal() {
 		assert(abs(Hii - matrix(i,i)) <= thresh);
 	}
 
+        MPI_Barrier(MPI_COMM_WORLD);
+        MPI_Allreduce(tmp_H_diag.data(), H_diag.data(), (int)bas.get_basis_size(), MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+
 	// After diagonal has been calculated - perform indirect sorting to populate iperm
 	//iperm.resize(get_basis_size());
 	//gsl_sort_index(iperm.data(), H_diag.data(), 1, get_basis_size());
 	
-	return tmp_H_diag;
+	return H_diag;
 
 }
-
-double Hamiltonian::matrix(size_t i, size_t j) {
+double Hamiltonian_mpi::matrix(size_t i, size_t j) { // Would it make more sense to create an ABC for Hamiltonian and just derive versions for MPI/OpenMP
 
 	auto [ ia, ib ] = bas.unpack_str_index(i);
 	auto [ ja, jb ] = bas.unpack_str_index(j);
@@ -108,163 +109,140 @@ double Hamiltonian::matrix(size_t i, size_t j) {
 	return Hij;
 }
 
-void Hamiltonian::save_matrix() {
-	// Matrix will be saved in a row major order 
-	// to the text file hamiltonian.dat
-	
-	fstream h_file;
-	h_file.open("HAMILTONIAN.DAT", std::ios::out);
-        double sym_thresh = 1e-6;
-	assert(h_file.is_open());
 
-	auto n_bf = bas.get_basis_size();
-#ifndef _OPENMP
-	for (size_t irow = 0; irow < n_bf; irow++)
-		for (size_t icol = 0; icol < n_bf; icol++) {
-			double h = matrix(irow, icol) ;
-                        assert (abs(matrix(icol, irow) - h) <= sym_thresh);
-			h_file << std::scientific << std::setprecision(20) << std::setw(28) << h << std::endl;
-		}
+std::vector<double> Hamiltonian_mpi::diag(bool save_wfn) {
 
-#else
-        auto matrix_size = n_bf * n_bf;
-        std::vector<double> h_el(matrix_size, 0.0);
-
-#pragma omp parallel for
-        for (size_t i = 0; i < matrix_size; i++) {
-            auto icol = i % n_bf;
-            auto irow  = (i - icol) / n_bf;
-            double h_i = matrix(irow, icol);
-            auto diff = abs(matrix(icol, irow) - h_i); 
-            if (diff >= sym_thresh) {
-                std::cout << "Diff : "; 
-                std::cout << diff <<std::endl;
-                assert ( diff <= sym_thresh);
-            }
-#pragma omp critical 
-            h_el[i] = h_i;
-        }
-
-        for (const auto &h : h_el)
-            h_file << std::scientific << std::setprecision(20) << std::setw(28) << h << std::endl;
-#endif
-
-	h_file.close();
-}
-
-std::vector<double> Hamiltonian::diag(bool save_wfn) {
-
-	// When building matrix it is helpful to assess if it is diagonally dominant
-	// so that one could see if the Davidson solver will perform well in this
-	// case
+    // This function will use a more complicated approach as compared to 
+    // the one that calculates the diagonal since the matrix itself can
+    // get really large and it makes more sense to save memory
 
     auto [ num_alpha_str, num_beta_str ]  = bas.get_num_str();
     assert ( num_alpha_str != 0 || num_beta_str != 0);
-    size_t n_bf = bas.get_basis_size();
+    size_t n_bf = bas.get_basis_size(), n_bf2 = n_bf * n_bf;
     auto [ nalpha, nbeta ] = bas.get_ab(); // number of alpha and beta electrons
     size_t nel = nalpha + nbeta; // total number of electrons
 
-    gsl_matrix *h_grid = gsl_matrix_calloc(n_bf, n_bf);
-    gsl_matrix *eigvecs = gsl_matrix_calloc(n_bf, n_bf);
-    gsl_vector *energies = gsl_vector_calloc(n_bf); 
+    // Calculate the index range for the current rank
 
-    std::cout << " The size of the N-electron basis set is " << n_bf << std::endl;
-    printf("Building the matrix...\n");
+    int chunk = (int)(n_bf2) / nprocs;
+    int istart = me * chunk, ifinish = (me + 1) * chunk;
+    if (me == nprocs - 1) ifinish = (int)(n_bf2) - 1;
+    int submat_size = ifinish - istart;
+    std::vector<double> submat(submat_size, 0.0), H_mat; // the memory for H_mat will be allocated later
+
+    if (me == 0) {
+        std::cout << " The size of the N-electron basis set is " << n_bf << std::endl;
+        printf("Building the matrix...\n");
+    }
 
     double max_d = 0.0, max_offd = 0.0;
+    double local_max_d = 0.0, local_max_offd = 0.0;
 
-    for (size_t i = 0; i < n_bf; i++) 
-        for (int j = i; j < n_bf; j++) {
-            // Identify alpha/beta strings corresponding to i and j;
-            auto [ ia, ib ] = bas.unpack_str_index(i);
-            auto [ ja, jb ] = bas.unpack_str_index(j);
-            //printf("(%d, %d / %d, %d)\n", ia, ib, ja, jb);
-            //std::cout.flush();
+    for (size_t idx = istart; idx < ifinish; idx++) {
+        // Calculate the basis function indeces
+        int j = idx % (int)n_bf;
+        int i = ((int)idx - j) / (int)n_bf;
 
-            assert ( ia < num_alpha_str && ja < num_alpha_str);
-            if (nbeta > 0) assert (ib < num_beta_str && jb < num_beta_str);
-            if (nbeta == 0) assert (ib == 0 && jb == 0);
+        auto [ ia, ib ] = bas.unpack_str_index(i);
+        auto [ ja, jb ] = bas.unpack_str_index(j);
+        //printf("(%d, %d / %d, %d)\n", ia, ib, ja, jb);
+        //std::cout.flush();
 
-            double Hij = 0.0;
+        assert ( ia < num_alpha_str && ja < num_alpha_str);
+        if (nbeta > 0) assert (ib < num_beta_str && jb < num_beta_str);
+        if (nbeta == 0) assert (ib == 0 && jb == 0);
 
-            Hij += evaluate_core(ia, ja, ALPHA) * (ib == jb ? 1. : 0.);
-            if (nel > 1) {
-		// Check if the string index is within bounds 
-		assert ( ia < num_alpha_str && ja < num_alpha_str );
-		Hij += evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
-            }
-            if (num_beta_str > 0) {
-		Hij += evaluate_core(ib, jb, BETA)* (ia == ja ? 1. : 0.);
-		if (nel > 1) {
-                    Hij += evaluate_coulomb(ib, jb, BETA) * (ia == ja ? 1. : 0.);
-                    Hij += evaluate_coulomb_coupled(ia, ib, ja, jb); // does not need Kroneker delta
-                }	
-            }
+        double Hij = 0.0;
 
-            if ( i == j ) max_d = std::max(max_d, std::abs(Hij));
-            if ( i != j ) max_offd = std::max(max_offd, std::abs(Hij));
-
-            double thresh = 1e-14;
-            assert(abs(Hij - matrix(i,j)) <= thresh);
-
-            gsl_matrix_set(h_grid, i, j, Hij);
-            gsl_matrix_set(h_grid, j, i, Hij);
+        Hij += evaluate_core(ia, ja, ALPHA) * (ib == jb ? 1. : 0.);
+        if (nel > 1) {
+	    // Check if the string index is within bounds 
+	    assert ( ia < num_alpha_str && ja < num_alpha_str );
+	    Hij += evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
+        }
+        if (num_beta_str > 0) {
+	    Hij += evaluate_core(ib, jb, BETA)* (ia == ja ? 1. : 0.);
+	    if (nel > 1) {
+                Hij += evaluate_coulomb(ib, jb, BETA) * (ia == ja ? 1. : 0.);
+                Hij += evaluate_coulomb_coupled(ia, ib, ja, jb); // does not need Kroneker delta
+            }	
         }
 
-    printf("Done!\n");
+        if ( i == j ) local_max_d = std::max(local_max_d, std::abs(Hij));
+        if ( i != j ) local_max_offd = std::max(local_max_offd, std::abs(Hij));
 
-
-    printf("|max Hii| / | max Hij (i != j) | = %20.10f\n", max_d/ max_offd);
-    double norm2 = 0.0;
-
-    for (size_t i = 0; i < n_bf; i++ ) {
-	for (size_t j = 0; j < n_bf; j++ ) {
-            norm2 += gsl_matrix_get(h_grid, i, j) *  gsl_matrix_get(h_grid, j, i);
-	}
+        submat[idx - istart] = Hij;
     }
-    norm2 = sqrt(norm2);
-#ifdef DEBUG
-    for (int i = 0; i < n_bf; i++) {
-        for (int j = 0; j < n_bf; j++) {
-            double el = gsl_matrix_get(h_grid, i, j);
-            printf("%13.6f  ", el);
+
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    // Communicate all the smaller matrix pieces to assemble the Hamiltonian matrix
+    // MPI_Gatherv will be used here; the code below should be rewritten later for 
+    // PBLAS/BLACS and ScaLapack
+    std::vector<int> counts(1, 0), disps(1, 0); // 1, 0 is just in case..
+    std::vector<double> eigvals(n_bf, 0.0);
+    if (save_wfn) gs_wfn.resize(n_bf); // Important!!!
+    if (me == 0) {
+        counts.resize(nprocs);
+        disps.resize(nprocs);  
+        std::fill(disps.begin(), disps.end(), 0);
+        MPI_Gather(&submat_size, 1, MPI_INT, counts.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
+        // Set the array of dispacements and put togather the Hamiltonian
+        for (size_t iproc = 0; iproc < nprocs - 1; iproc++) disps[iproc + 1] = disps[iproc] + counts[iproc];
+        // A quick sanity check
+        assert(std::accumulate(counts.begin(), counts.end(), 0) == n_bf2);
+        H_mat.resize(n_bf2);
+        MPI_Gatherv(submat.data(), submat_size, MPI_DOUBLE, H_mat.data(), counts.data(), disps.data(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        // Get diagonal/off-diagonal elements across all the matrix chunks
+        MPI_Reduce(&local_max_d, &max_d, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&local_max_offd, &max_offd, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        printf("Done!\n");
+        printf("|max Hii| / | max Hij (i != j) | = %20.10f\n", max_d/ max_offd);
+
+        double norm2 = 0.0;
+        for (size_t i = 0; i < n_bf; i++ ) {
+            for (size_t j = 0; j < n_bf; j++ ) {
+                norm2 += H_mat[i * n_bf + j] * H_mat[i * n_bf + j];
+            }
         }
-        printf("\n");
+        norm2 = sqrt(norm2);
+
+        printf("Starting full diagonalization... ");
+        // Create all the temporary variables
+        char JOBZ = (save_wfn ? 'V' : 'N'), UPLO = 'U';
+        std::vector<double> w(n_bf, 0.), work(3*n_bf - 1, 0.);
+        int info, lwork = 3*(int)n_bf - 1;
+        int n_bf_ = (int)n_bf;
+        // Form a LAPACK call
+        dsyev_(&JOBZ, &UPLO, &n_bf_, H_mat.data(), &n_bf_, w.data(), work.data(), &lwork, &info);
+        assert(info == 0);
+        printf("Done! \n");
+        // True for GSL but not quite sure about LAPACK so will probably comment that out for now
+        /*
+        printf("The accuracy of the computed eigenvalues is %28.20f \n", std::numeric_limits<double>::epsilon() * norm2);
+        printf("Frobenius norm of the Hamiltonian matrix is %28.20f \n", norm2);
+        */
+        if (save_wfn) {
+            // Scatter the wave function (each process creates its own mixed estimator)
+            MPI_Scatter(H_mat.data(), (int)n_bf, MPI_DOUBLE, gs_wfn.data(), (int)n_bf, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        }
+        MPI_Scatter(w.data(), (int)n_bf, MPI_DOUBLE, eigvals.data(), (int)n_bf, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    } else {
+        MPI_Gather(&submat_size, 1, MPI_INT, counts.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Gatherv(submat.data(), submat_size, MPI_DOUBLE, H_mat.data(), counts.data(), disps.data(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        std::vector<double> w;
+        if (save_wfn) {
+            // recieve the wave function (each process creates its own mixed estimator)
+            MPI_Scatter(H_mat.data(), (int)n_bf, MPI_DOUBLE, gs_wfn.data(), (int)n_bf, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        }
+        MPI_Scatter(w.data(), (int)n_bf, MPI_DOUBLE, eigvals.data(), (int)n_bf, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     }
-#endif
-
-    printf("Starting full diagonalization... ");
-    gsl_eigen_symmv_workspace *w  = gsl_eigen_symmv_alloc(n_bf);
-    gsl_eigen_symmv(h_grid, energies, eigvecs, w);
-
-    gsl_eigen_symmv_sort (energies, eigvecs, GSL_EIGEN_SORT_VAL_ASC);
-
-    printf("Done! \n");
-    // According to GSL manual:
-    printf("The accuracy of the computed eigenvalues is %28.20f \n", std::numeric_limits<double>::epsilon() * norm2);
-    printf("Frobenius norm of the Hamiltonian matrix is %28.20f \n", norm2);
-
-    vector<double> eigvals;
-
-    for (int i = 0; i < n_bf; i++)
-        eigvals.push_back(gsl_vector_get(energies, i));
-
-	if (save_wfn) {
-		gs_wfn.resize(n_bf);
-		for (size_t i = 0; i < n_bf; i++)
-			//gs_wfn.push_back(gsl_matrix_get(eigvecs, i, 0));
-			gs_wfn[i] = gsl_matrix_get(eigvecs, i, 0);
-	}
-
-    gsl_eigen_symmv_free(w);
-    gsl_matrix_free(h_grid);
-    gsl_matrix_free(eigvecs);
-    gsl_vector_free(energies);
 
     return eigvals;
 }
 
-double Hamiltonian::check_wfn() {
+double Hamiltonian_mpi::check_wfn() {
 	if (gs_wfn.size() == 0) return 0.0;
 	// 1. Check orthogonality
 	double norm2 = 0.0;
@@ -320,87 +298,7 @@ std::vector<double> diag_davidson(size_t nstates) {
 }
 */
 
-std::vector<double> Hamiltonian::diag_davidson(size_t nstates) {
-
-    double tol = 1.e-6; // Convergence tollerance
-
-	auto [ num_alpha_str, num_beta_str ]  = bas.get_num_str();
-    assert ( num_alpha_str != 0 || num_beta_str != 0);
-    size_t n_bf = bas.get_basis_size();
-    auto [ nalpha, nbeta ] = bas.get_ab(); // number of alpha and beta electrons
-    size_t nel = nalpha + nbeta; // total number of electrons
-
-    //arma::sp_mat h_grid(n_bf, n_bf, arma::fill::zeros);
-    arma::sp_mat h_grid(n_bf, n_bf);
-    arma::mat eigvecs;
-    arma::vec eigvals; 
-
-    std::cout << " The size of the N-electron basis set is " << n_bf << std::endl;
-
-    printf("Building the matrix...\n");
-
-    double max_d = 0.0, max_offd = 0.0;
-
-    for (size_t i = 0; i < n_bf; i++) 
-        for (int j = i; j < n_bf; j++) {
-	// Identify alpha/beta strings corresponding to i and j;
-
-            auto [ ia, ib ] = bas.unpack_str_index(i);
-            auto [ ja, jb ] = bas.unpack_str_index(j);
-
-            assert ( ia < num_alpha_str && ja < num_alpha_str);
-            if (nbeta > 0) assert (ib < num_beta_str && jb < num_beta_str);
-
-            double Hij = 0.0;
-
-            Hij += evaluate_core(ia, ja, ALPHA) * (ib == jb ? 1. : 0.);
-            if (nel > 1) {
-            // Check if the string index is within bounds 
-                assert ( ia < num_alpha_str && ja < num_alpha_str );
-				Hij += evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
-			}
-			if (num_beta_str > 0) {
-			Hij += evaluate_core(ib, jb, BETA)* (ia == ja ? 1. : 0.);
-				if (nel > 1) {
-						Hij += evaluate_coulomb(ib, jb, BETA) * (ia == ja ? 1. : 0.);
-						Hij += evaluate_coulomb_coupled(ia, ib, ja, jb); // does not need Kroneker delta
-				}	
-			}
-
-            if ( i == j ) max_d = std::max(max_d, std::abs(Hij));
-            if ( i != j ) max_offd = std::max(max_offd, std::abs(Hij));
-
-			h_grid(i, j) =  Hij; // Performs bounds checking; can be disabled at compile time
-			h_grid(j, i) =  Hij; // Performs bounds checking; can be disabled at compile time
-        }
-
-    printf("Done!\n");
-
-    // Check if the matrix is indeed symmetric
-    assert (h_grid.is_symmetric());
-
-    printf("|max Hii| / | max Hij (i != j) | = %20.10f\n", max_d/ max_offd);
-
-    printf("Starting diagonalization... ");
-
-    bool solved = arma::eigs_sym(eigvals, eigvecs, h_grid, nstates, "sa");
-    //bool solved = arma::eigs_sym(eigvals, eigvecs, h_grid, nstates, "sa", tol);
-    //bool solved = arma::eigs_sym(eigvals, eigvecs, h_grid, nstates, form = "sa");
-    //bool solved = arma::eigs_sym(eigvals, eigvecs, h_grid, nstates);
-
-    assert (solved);
-
-    printf("Done! \n");
-
-    vector<double> en(nstates, 0.0);
-
-    std::copy(eigvals.begin(), eigvals.end(), en.begin());
-
-    return en;
-
-}
-
-double Hamiltonian::evaluate_core(size_t is, size_t js, int type) {
+double Hamiltonian_mpi::evaluate_core(size_t is, size_t js, int type) {
 
 	// Note that is and js as spin string indeces; We need to process them
 	// to obtain orbital index lists
@@ -533,7 +431,7 @@ double Hamiltonian::evaluate_core(size_t is, size_t js, int type) {
 	}
 }
 
-double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
+double Hamiltonian_mpi::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 
 	//assert ( false );
 
@@ -644,7 +542,7 @@ double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 
 }
 
-double Hamiltonian::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja, size_t jb) {
+double Hamiltonian_mpi::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja, size_t jb) {
 
 	// More thorough testing is required in order to check if the function 
 	// works correctly
