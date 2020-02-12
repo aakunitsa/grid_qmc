@@ -125,10 +125,16 @@ std::vector<double> Hamiltonian_mpi::diag(bool save_wfn) {
     // Calculate the index range for the current rank
 
     int chunk = (int)(n_bf2) / nprocs;
+    // For debugging purposes
     int istart = me * chunk, ifinish = (me + 1) * chunk;
-    if (me == nprocs - 1) ifinish = (int)(n_bf2) - 1;
+    if (me == nprocs - 1) ifinish = (int)(n_bf2);
     int submat_size = ifinish - istart;
     std::vector<double> submat(submat_size, 0.0), H_mat; // the memory for H_mat will be allocated later
+    // Check that the total number of elements processed by all MPI ranks checks out
+    // Will be removed in the production version of the class
+    int total_num = 0;
+    MPI_Reduce(&submat_size, &total_num, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+    if (me == 0) assert (total_num == (int)n_bf2);
 
     if (me == 0) {
         std::cout << " The size of the N-electron basis set is " << n_bf << std::endl;
@@ -179,23 +185,27 @@ std::vector<double> Hamiltonian_mpi::diag(bool save_wfn) {
     // Communicate all the smaller matrix pieces to assemble the Hamiltonian matrix
     // MPI_Gatherv will be used here; the code below should be rewritten later for 
     // PBLAS/BLACS and ScaLapack
-    std::vector<int> counts(1, 0), disps(1, 0); // 1, 0 is just in case..
+    std::vector<int> counts, disps; 
     std::vector<double> eigvals(n_bf, 0.0);
     if (save_wfn) gs_wfn.resize(n_bf); // Important!!!
     if (me == 0) {
         counts.resize(nprocs);
         disps.resize(nprocs);  
-        std::fill(disps.begin(), disps.end(), 0);
         MPI_Gather(&submat_size, 1, MPI_INT, counts.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
         // Set the array of dispacements and put togather the Hamiltonian
-        for (size_t iproc = 0; iproc < nprocs - 1; iproc++) disps[iproc + 1] = disps[iproc] + counts[iproc];
+        std::fill(disps.begin(), disps.end(), 0);
+        for (size_t i = 1; i< nprocs; i++) disps[i] = disps[i-1] + counts[i-1];
         // A quick sanity check
-        assert(std::accumulate(counts.begin(), counts.end(), 0) == n_bf2);
+        auto total_processed = std::accumulate(counts.begin(), counts.end(), 0);
+        assert(total_processed == (int)n_bf2);
         H_mat.resize(n_bf2);
         MPI_Gatherv(submat.data(), submat_size, MPI_DOUBLE, H_mat.data(), counts.data(), disps.data(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        //MPI_Gather(submat.data(), submat_size, MPI_DOUBLE, H_mat.data(), submat_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
         // Get diagonal/off-diagonal elements across all the matrix chunks
+        
         MPI_Reduce(&local_max_d, &max_d, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
         MPI_Reduce(&local_max_offd, &max_offd, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        
         printf("Done!\n");
         printf("|max Hii| / | max Hij (i != j) | = %20.10f\n", max_d/ max_offd);
 
@@ -231,6 +241,9 @@ std::vector<double> Hamiltonian_mpi::diag(bool save_wfn) {
     } else {
         MPI_Gather(&submat_size, 1, MPI_INT, counts.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
         MPI_Gatherv(submat.data(), submat_size, MPI_DOUBLE, H_mat.data(), counts.data(), disps.data(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        //MPI_Gather(submat.data(), submat_size, MPI_DOUBLE, H_mat.data(), submat_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&local_max_d, &max_d, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&local_max_offd, &max_offd, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
         std::vector<double> w;
         if (save_wfn) {
             // recieve the wave function (each process creates its own mixed estimator)

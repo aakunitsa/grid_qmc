@@ -1,3 +1,7 @@
+if(USE_MPI)
+    find_package(MPI REQUIRED)
+endif()
+
 
 add_executable(graph_test.x graph.cpp)
 target_link_libraries(graph_test.x ref_methods)
@@ -34,6 +38,22 @@ add_executable(estimators_test.x
     ${CMAKE_SOURCE_DIR}/src/qbasis.cpp
     )
 target_link_libraries(estimators_test.x ref_methods)
+
+# If we USE_MPI then => add some tests for MPI
+
+if(USE_MPI)
+    add_executable(parallel_fci_test.x 
+        parallel_fci.cpp
+        ${CMAKE_SOURCE_DIR}/src/qbasis.cpp
+        ${CMAKE_SOURCE_DIR}/src/qhamiltonian_mpi.cpp
+        )
+
+    target_link_libraries(parallel_fci_test.x
+        PUBLIC
+        MPI::MPI_CXX
+        ref_methods # for benchmarking against serial implementation
+        )
+endif()
 
 enable_testing()
 
@@ -76,3 +96,11 @@ add_test(
     NAME estimators_2etrunc_space_test
     COMMAND $<TARGET_FILE:estimators_test.x> -i ${CMAKE_CURRENT_SOURCE_DIR}/estimators2.in > estimators2.log
     )
+
+if(USE_MPI)
+    add_test(
+        NAME parallel_fci_test
+        COMMAND mpirun -np 2 $<TARGET_FILE:parallel_fci_test.x>
+    )
+endif()
+        
