@@ -1,8 +1,9 @@
-eq_steps = 4000
-steps = 30000
-N = 300
+run_type = ci
+int_type = aux
 electrons = 2
-opt_steps = 15
-mult = 1
-nrad = 200
-nang = 50
+Z = 2
+mult = 3
+nrad = 25
+nang = 6
+L_max = 0
+

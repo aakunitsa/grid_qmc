@@ -19,6 +19,7 @@ find_package(Armadillo REQUIRED)
 #find_package(xtensor REQUIRED)
 find_package(GSL REQUIRED)
 add_definitions(-DMT64 -DARMA_DONT_USE_WRAPPER -DNORMAL_POLYMER1)
+#configure_file(qconfig.h.in qconfig.h)
 
 option(USE_OPENMP "Enable OpenMP feartures if an OpenMP implementation is installed" OFF)
 option(USE_MPi "Enable MPI feartures if an MPI implementation is installed" OFF)

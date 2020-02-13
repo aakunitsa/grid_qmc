@@ -104,7 +104,7 @@ void Integral_factory::gen_bf_map(bool sort=false) {
 void Integral_factory::fcidump() {
 
         // Generate paux_bf_map
-        gen_bf_map(true);
+        gen_bf_map(false); // Should be true but will turn it off for now
 
 	fstream int_file;
 	int_file.open("QFCIDUMP.POLY", std::ios::out);

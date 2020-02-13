@@ -6,7 +6,7 @@
 #include <cstdio>
 
 
-MixedBasisEstimator::MixedBasisEstimator(Params_reader &q, Integral_factory &int_f, Basis &bas) : ss(q.params["L_max"]), g(q.params), Estimator(int_f, bas) {
+MixedBasisEstimator::MixedBasisEstimator(Params_reader &q, Integral_factory &int_f, Basis &bas) : ss(q.params["estimator_L_max"]), g(q.params), Estimator(int_f, bas) {
 #ifdef USE_MPI
     int me;
     MPI_Comm_rank(MPI_COMM_WORLD, &me);
@@ -15,7 +15,11 @@ MixedBasisEstimator::MixedBasisEstimator(Params_reader &q, Integral_factory &int
     // Allocate auxiliary basis
     aux_int = new Aux_integrals(q, ss);
     aux_bas_full = new DetBasis(q.params, aux_int->n1porb);
+#ifdef USE_MPI
+    Hamiltonian_mpi aux_h_full(*aux_int, *aux_bas_full);
+#else
     Hamiltonian aux_h_full(*aux_int, *aux_bas_full);
+#endif
     // Generate a trial vector
     auto d = aux_h_full.build_diagonal();
     /* 
@@ -27,7 +31,11 @@ MixedBasisEstimator::MixedBasisEstimator(Params_reader &q, Integral_factory &int
     size_t subspace_size = std::min(aux_bas_full->get_basis_size(), size_t(q.params["fciqmc_projection_subspace"]));
     if (subspace_size <= 0) subspace_size = 1;
     aux_bas_tr = new TruncatedBasis(q.params, aux_int->n1porb, subspace_size, d, *aux_bas_full);
+#ifdef USE_MPI
+    Hamiltonian_mpi aux_h_tr(*aux_int, *aux_bas_tr);
+#else
     Hamiltonian aux_h_tr(*aux_int, *aux_bas_tr);
+#endif
     trial_state.resize(aux_bas_tr->get_basis_size());
     {
         auto e = aux_h_tr.diag(true); // Saving the ground state
@@ -45,19 +53,20 @@ MixedBasisEstimator::MixedBasisEstimator(Params_reader &q, Integral_factory &int
     }
     if (verbose) std::cout << "(MixedBasisEstimator) Ground state energy is " << trial_e << std::endl;
     // Calculate the overlap matrix between the basis vectors 
-    std::cout << "Calculating the overlap matrix " << std::endl;
+    if (verbose) std::cout << "Calculating the overlap matrix " << std::endl;
     overlap.resize(bas_full.get_basis_size() * aux_bas_tr->get_basis_size());
     // Fast index will correspond to the auxiliary basis
     // Handle 1e, 2e and 3e cases separately
     size_t nel = q.params["electrons"];
     size_t full_bas_size = bas_full.get_basis_size(), aux_bas_size = aux_bas_tr->get_basis_size();
     //std::cout << "Number of electrons " << nel << std::endl;
-    std::cout << "Aux/full : " << aux_bas_size << "/" << full_bas_size << std::endl;
+    if(verbose) std::cout << "Aux/full : " << aux_bas_size << "/" << full_bas_size << std::endl;
+    // Not MPI parallel yet
     for (size_t j = 0; j < full_bas_size; j++) {
         for (size_t i = 0; i < aux_bas_size; i++) {
             //std::cout << " In auxiliary basis " << aux_bas_tr->get_id(i) << std::endl;
             //std::cout << " In full basis " << j << std::endl;
-            auto o_ = calc_overlap(aux_bas_tr->get_id(i), j);
+            //auto o_ = calc_overlap(aux_bas_tr->get_id(i), j);
             switch (nel) {
                 case 1:
                     overlap[j * aux_bas_size + i] = calc_overlap1(aux_bas_tr->get_id(i), j);
