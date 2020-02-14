@@ -41,8 +41,8 @@ int main(int argc, char **argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &me);
     MPI_Comm_size(MPI_COMM_WORLD, &nproc);
 #endif
-	// Read the input file
-
+    // Read the input file
+    if (me == 0) print_banner();
     Params_reader q(argc, argv);
     q.perform();
 
@@ -106,7 +106,6 @@ int main(int argc, char **argv) {
     Integral_factory *g_int;
     bool with_estimator = false, with_basis = false;
     size_t n_states = 10; // Default number of states for FCI calculations
-    if (me == 0) print_banner();
 #ifdef USE_MPI
     double t_local = -MPI_Wtime();
     double t_max;
@@ -164,12 +163,34 @@ int main(int argc, char **argv) {
                 std::copy(e.begin(), e.end(), en.begin());
             }
 
+            // This has been added for debugging purposes (will be removed later);
+
+            if (basis->get_basis_size() < 500) {
+                auto d = h.build_diagonal();
+                std::sort(d.begin(), d.end());
+                if ( me == 0 ) {
+                    std::cout << "Diagonal part of the Hamiltonian matrix" << std::endl;
+                    for (const auto &el : d)
+                        printf("%16.10f\n", el);
+                }
+            }
+
             if (me == 0) {
                 std::cout << " Printing the first " << en.size() << " eigenvalues of the hamiltonian " << std::endl;
                 std::cout << std::scientific;
                 for (auto &energy : en) 
                     std::cout << energy << std::endl;
             }
+
+        } else if (q.params["run_type"] == save_h) {
+#ifndef USE_MPI
+            Hamiltonian h(*g_int, *basis);
+#else
+            Hamiltonian_mpi h(*g_int, *basis);
+#endif
+            if (me == 0) std::cout << "Saving Hamiltonian to the text file... ";
+            h.save_matrix();
+            if (me == 0) std::cout << "Done!" << std::endl;
 
         } else if (q.params["run_type"] == fciqmc) {
             // This requires both Hamiltonian and energy estimator

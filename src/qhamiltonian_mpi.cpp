@@ -109,8 +109,7 @@ double Hamiltonian_mpi::matrix(size_t i, size_t j) { // Would it make more sense
 	return Hij;
 }
 
-
-std::vector<double> Hamiltonian_mpi::diag(bool save_wfn) {
+std::tuple< double, double, std::vector<double> > Hamiltonian_mpi::build_full_matrix() {
 
     // This function will use a more complicated approach as compared to 
     // the one that calculates the diagonal since the matrix itself can
@@ -138,7 +137,7 @@ std::vector<double> Hamiltonian_mpi::diag(bool save_wfn) {
 
     if (me == 0) {
         std::cout << " The size of the N-electron basis set is " << n_bf << std::endl;
-        printf("Building the matrix...\n");
+        printf("Building the matrix... ");
     }
 
     double max_d = 0.0, max_offd = 0.0;
@@ -186,8 +185,6 @@ std::vector<double> Hamiltonian_mpi::diag(bool save_wfn) {
     // MPI_Gatherv will be used here; the code below should be rewritten later for 
     // PBLAS/BLACS and ScaLapack
     std::vector<int> counts, disps; 
-    std::vector<double> eigvals(n_bf, 0.0);
-    if (save_wfn) gs_wfn.resize(n_bf); // Important!!!
     if (me == 0) {
         counts.resize(nprocs);
         disps.resize(nprocs);  
@@ -207,8 +204,27 @@ std::vector<double> Hamiltonian_mpi::diag(bool save_wfn) {
         MPI_Reduce(&local_max_offd, &max_offd, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
         
         printf("Done!\n");
-        printf("|max Hii| / | max Hij (i != j) | = %20.10f\n", max_d/ max_offd);
 
+    } else {
+        MPI_Gather(&submat_size, 1, MPI_INT, counts.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
+        MPI_Gatherv(submat.data(), submat_size, MPI_DOUBLE, H_mat.data(), counts.data(), disps.data(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        //MPI_Gather(submat.data(), submat_size, MPI_DOUBLE, H_mat.data(), submat_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&local_max_d, &max_d, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+        MPI_Reduce(&local_max_offd, &max_offd, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+    }
+
+    return std::make_tuple(max_d, max_offd, H_mat);
+
+}
+
+std::vector<double> Hamiltonian_mpi::diag(bool save_wfn) {
+
+    auto && [max_d, max_offd, H_mat] = build_full_matrix();
+    size_t n_bf = bas.get_basis_size(), n_bf2 = n_bf * n_bf;
+    std::vector<double> eigvals(n_bf, 0.0);
+    if (save_wfn) gs_wfn.resize(n_bf); // Important!!!
+    if (me == 0) {
+        printf("|max Hii| / | max Hij (i != j) | = %20.10f\n", max_d/ max_offd);
         double norm2 = 0.0;
         for (size_t i = 0; i < n_bf; i++ ) {
             for (size_t j = 0; j < n_bf; j++ ) {
@@ -232,24 +248,24 @@ std::vector<double> Hamiltonian_mpi::diag(bool save_wfn) {
         printf("The accuracy of the computed eigenvalues is %28.20f \n", std::numeric_limits<double>::epsilon() * norm2);
         printf("Frobenius norm of the Hamiltonian matrix is %28.20f \n", norm2);
         */
+        std::cout << "Broadcasting the wave function (if requested)...";
         if (save_wfn) {
             // Scatter the wave function (each process creates its own mixed estimator)
-            MPI_Scatter(H_mat.data(), (int)n_bf, MPI_DOUBLE, gs_wfn.data(), (int)n_bf, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+            std::copy(H_mat.begin(), std::next(H_mat.begin(), n_bf), gs_wfn.data());
+            MPI_Bcast(gs_wfn.data(), (int)n_bf, MPI_DOUBLE, 0, MPI_COMM_WORLD);
         }
-        MPI_Scatter(w.data(), (int)n_bf, MPI_DOUBLE, eigvals.data(), (int)n_bf, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        std::cout << "Done!" << std::endl;
+        std::cout << "Broadcasting the eigenvalues ...";
+        std::copy(w.begin(), w.end(), eigvals.begin());
+        MPI_Bcast(eigvals.data(), (int)n_bf, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        std::cout << "Done!" << std::endl;
 
     } else {
-        MPI_Gather(&submat_size, 1, MPI_INT, counts.data(), 1, MPI_INT, 0, MPI_COMM_WORLD);
-        MPI_Gatherv(submat.data(), submat_size, MPI_DOUBLE, H_mat.data(), counts.data(), disps.data(), MPI_DOUBLE, 0, MPI_COMM_WORLD);
-        //MPI_Gather(submat.data(), submat_size, MPI_DOUBLE, H_mat.data(), submat_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&local_max_d, &max_d, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-        MPI_Reduce(&local_max_offd, &max_offd, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-        std::vector<double> w;
         if (save_wfn) {
             // recieve the wave function (each process creates its own mixed estimator)
-            MPI_Scatter(H_mat.data(), (int)n_bf, MPI_DOUBLE, gs_wfn.data(), (int)n_bf, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+            MPI_Bcast(gs_wfn.data(), (int)n_bf, MPI_DOUBLE, 0, MPI_COMM_WORLD);
         }
-        MPI_Scatter(w.data(), (int)n_bf, MPI_DOUBLE, eigvals.data(), (int)n_bf, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+        MPI_Bcast(eigvals.data(), (int)n_bf, MPI_DOUBLE, 0, MPI_COMM_WORLD);
     }
 
     return eigvals;
@@ -260,7 +276,7 @@ double Hamiltonian_mpi::check_wfn() {
 	// 1. Check orthogonality
 	double norm2 = 0.0;
 	for (const auto &c : gs_wfn) norm2 += (c * c);
-	printf("Norm of the ground state wave function is %13.6f \n", sqrt(norm2));
+	if (me == 0) printf("Norm of the ground state wave function is %13.6f \n", sqrt(norm2));
 
 	// 2. Calculate the Reileigh quotient
 	assert (gs_wfn.size() == bas.get_basis_size());
@@ -271,10 +287,9 @@ double Hamiltonian_mpi::check_wfn() {
 			e += gs_wfn[i] * gs_wfn[j] * matrix(i, j);
 		}
 	}
-	printf("Energy of the ground state via Reileigh quotient %13.6f \n", e/norm2);
+	if (me == 0) printf("Energy of the ground state via Reileigh quotient %13.6f \n", e/norm2);
 
 	return e/norm2;
-
 }
 
 
@@ -604,9 +619,27 @@ double Hamiltonian_mpi::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja
 	}
 
 	// Check if other coupling terms would be needed as well, e.g. single spin-conserving excitations
-
 }
 
+void Hamiltonian_mpi::save_matrix() {
+    // Matrix will be saved in a row major order 
+    // to the text file hamiltonian.dat
+
+    const auto & [max_d, max_offd, h_full] = build_full_matrix();
+    auto n_bf = bas.get_basis_size();
+    assert (n_bf * n_bf == h_full.size());
+    if (me == 0) {
+	fstream h_file;
+	h_file.open("HAMILTONIAN.DAT", std::ios::out);
+	assert(h_file.is_open());
+        for (const auto &h : h_full) {
+            h_file << std::scientific << std::setprecision(20) << std::setw(28) << h << std::endl;
+            std::cout << std::scientific << std::setprecision(20) << std::setw(28) << h << std::endl;
+        }
+        std::cout.flush();
+	h_file.close();
+    }
+}
 
 
 
