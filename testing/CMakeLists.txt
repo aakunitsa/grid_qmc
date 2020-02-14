@@ -26,6 +26,11 @@ add_executable(simple_fci_test.x
     )
 target_link_libraries(simple_fci_test.x ref_methods)
 
+add_executable(simple_fci_test_li2.x 
+    simple_fci_li2.cpp
+    )
+target_link_libraries(simple_fci_test_li2.x ref_methods)
+
 #add_executable(fci_test.x 
 #    fci.cpp 
 #    ${CMAKE_SOURCE_DIR}/src/qhamiltonian.cpp
@@ -80,6 +85,11 @@ add_test(
 add_test(
     NAME simple_fci_test
     COMMAND $<TARGET_FILE:simple_fci_test.x> 
+    )
+
+add_test(
+    NAME simple_fci_test_li2
+    COMMAND $<TARGET_FILE:simple_fci_test_li2.x> -i ${CMAKE_CURRENT_SOURCE_DIR}/simple_fci_test_li2.in > simple_fci_test_li2.log
     )
 
 #add_test(

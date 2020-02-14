@@ -22,7 +22,7 @@ add_definitions(-DMT64 -DARMA_DONT_USE_WRAPPER -DNORMAL_POLYMER1)
 #configure_file(qconfig.h.in qconfig.h)
 
 option(USE_OPENMP "Enable OpenMP feartures if an OpenMP implementation is installed" OFF)
-option(USE_MPi "Enable MPI feartures if an MPI implementation is installed" OFF)
+option(USE_MPI "Enable MPI feartures if an MPI implementation is installed" OFF)
 
 #include(FortranCInterface)
 #FortranCInterface_VERIFY()
@@ -52,6 +52,10 @@ if(USE_MPI)
     set(optional_sources "${CMAKE_CURRENT_SOURCE_DIR}/qfciqmc_mpi.cpp")
     set(optional_sources1 "${CMAKE_CURRENT_SOURCE_DIR}/qhamiltonian_mpi.cpp")
     add_definitions("-DUSE_MPI")
+endif()
+
+if(NOT (USE_MPI OR USE_OPENMP))
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
 endif()
 
 target_sources(grid_qmc.x

@@ -1,4 +1,3 @@
-
 #include <random>
 #include <cstdlib>
 #include <vector>
@@ -19,6 +18,7 @@
 #include <complex>
 #include <chrono>
 #include <numeric>
+#include <cassert>
 
 #include "qestimator.h"
 //#include "qconfig.h"
@@ -94,11 +94,7 @@ int main(int argc, char **argv) {
     //qp.test_second_deriv();
     //qp.test_second_deriv2();
     //qp.test_second_deriv3();
-    
-    // Tests of Hamiltonian and matrix element evaluation subroutines
-	
-    // Create a shellset first
-	
+    //
     ShellSet ss(size_t(q.params["L_max"])); // Lmax is 0 by default
     Becke_grid gr(q.params);
     Basis *basis;
@@ -122,7 +118,10 @@ int main(int argc, char **argv) {
     // it makes sense to handle this task separately
 
     if (q.params["run_type"] == integrals) {
-        if (me == 0) g_int->fcidump();
+        if (me == 0) {
+            printf("***Savings integrals***\n");
+            g_int->fcidump();
+        }
     } else {
         // Create basis
         basis = new DetBasis(q.params, g_int->n1porb);
@@ -130,6 +129,9 @@ int main(int argc, char **argv) {
         // For CI calculations we don't use estimators
         if (q.params["run_type"] == ci) {
             std::vector<double> en;
+            if (me == 0) {
+                printf("***Performing Hamiltonian diagonalization***\n");
+            }
             if (me == 0) printf("(MAIN) Constructing the Hamiltonian\n");
 #ifndef USE_MPI
             Hamiltonian h(*g_int, *basis);
@@ -189,11 +191,14 @@ int main(int argc, char **argv) {
             Hamiltonian_mpi h(*g_int, *basis);
 #endif
             if (me == 0) std::cout << "Saving Hamiltonian to the text file... ";
-            h.save_matrix();
+            h.save_matrix(); // Should be executed by all ranks
             if (me == 0) std::cout << "Done!" << std::endl;
 
         } else if (q.params["run_type"] == fciqmc) {
             // This requires both Hamiltonian and energy estimator
+            if (me == 0) {
+                printf("***FCIQMC simulation***\n");
+            }
 #ifndef USE_MPI
             Hamiltonian h(*g_int, *basis);
 #else

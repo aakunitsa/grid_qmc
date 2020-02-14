@@ -17,11 +17,11 @@ class Params_reader {
         // Some control variables
         bool verbose;
     public:
-        std::map<std::string, int> calcs {{"integrals", integrals}, {"ci", ci}, {"fciqmc", fciqmc }, {"vmc", vmc}};
+        std::map<std::string, int> calcs {{"integrals", integrals}, {"ci", ci}, {"fciqmc", fciqmc }, {"vmc", vmc}, {"save_h", save_h}};
         std::map<std::string, int>  ints {{"grid", grid}, {"aux", aux}, {"saved", saved}, {"hf", hf}};
         std::map<std::string, int>  estimators {{"direct", direct}, {"mixed", mixed}};
         // Auxiliary
-        std::map<int, std::string> icalcs {{integrals, "integrals"}, {ci, "ci"}, {fciqmc, "fciqmc"}, {vmc, "vmc"}};
+        std::map<int, std::string> icalcs {{integrals, "integrals"}, {ci, "ci"}, {fciqmc, "fciqmc"}, {vmc, "vmc"}, {save_h, "save_h"}};
         std::map<int, std::string>  iints {{grid, "grid"}, {aux, "aux"}, {saved,"saved"}, {hf, "hf"}};
         std::map<int, std::string>  iestimators {{direct, "direct"}, {mixed, "mixed"}};
         // Defaults

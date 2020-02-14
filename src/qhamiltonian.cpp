@@ -135,6 +135,8 @@ void Hamiltonian::save_matrix() {
             auto icol = i % n_bf;
             auto irow  = (i - icol) / n_bf;
             double h_i = matrix(irow, icol);
+            printf("%d / %d : %20.10f\n", icol, irow, h_i); 
+            std::cout.flush();
             auto diff = abs(matrix(icol, irow) - h_i); 
             if (diff >= sym_thresh) {
                 std::cout << "Diff : "; 

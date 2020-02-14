@@ -634,7 +634,7 @@ void Hamiltonian_mpi::save_matrix() {
 	assert(h_file.is_open());
         for (const auto &h : h_full) {
             h_file << std::scientific << std::setprecision(20) << std::setw(28) << h << std::endl;
-            std::cout << std::scientific << std::setprecision(20) << std::setw(28) << h << std::endl;
+            //std::cout << std::scientific << std::setprecision(20) << std::setw(28) << h << std::endl;
         }
         std::cout.flush();
 	h_file.close();
