@@ -48,23 +48,20 @@ if(USE_MPI)
         ${CMAKE_SOURCE_DIR}/src/qbasis.cpp
         ${CMAKE_SOURCE_DIR}/src/qhamiltonian_mpi.cpp
         )
-
     target_link_libraries(parallel_fci_test.x
         PUBLIC
         MPI::MPI_CXX
         ref_methods # for benchmarking against serial implementation
         )
-
-    add_executable(simple_fci_test_li2.x 
-        simple_fci_li2.cpp
-        ${CMAKE_SOURCE_DIR}/src/qbasis.cpp
-        ${CMAKE_SOURCE_DIR}/src/qhamiltonian_mpi.cpp
-		)
-
-    target_link_libraries(simple_fci_test_li2.x
-        PUBLIC
-        MPI::MPI_CXX
-        )
+    #add_executable(simple_fci_test_li2.x 
+    #    simple_fci_li2.cpp
+    #    ${CMAKE_SOURCE_DIR}/src/qbasis.cpp
+    #    ${CMAKE_SOURCE_DIR}/src/qhamiltonian_mpi.cpp
+    #    )
+    #target_link_libraries(simple_fci_test_li2.x
+    #    PUBLIC
+    #    MPI::MPI_CXX
+    #    )
 endif()
 
 enable_testing()
@@ -115,9 +112,9 @@ if(USE_MPI)
         NAME parallel_fci_test
         COMMAND mpirun -np 2 $<TARGET_FILE:parallel_fci_test.x>
     )
-	add_test(
-		NAME simple_fci_test_li2
-		COMMAND mpirun -np 4 $<TARGET_FILE:simple_fci_test_li2.x> -i ${CMAKE_CURRENT_SOURCE_DIR}/simple_fci_test_li2.in > simple_fci_test_li2.log
-    )
+#add_test(
+#        NAME simple_fci_test_li2
+#        COMMAND mpirun -np 4 $<TARGET_FILE:simple_fci_test_li2.x> -i ${CMAKE_CURRENT_SOURCE_DIR}/simple_fci_test_li2.in > simple_fci_test_li2.log
+#    )
 endif()
         
