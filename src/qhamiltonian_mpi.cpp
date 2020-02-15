@@ -608,9 +608,9 @@ double Hamiltonian_mpi::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja
 
 		for (size_t i = 0 ; i < nalpha; i++ ) 
 			for (size_t j = 0; j < nbeta; j++ ) 
-				matrix_element += (ig.ce(ia_s[i], ia_s[i], jb_s[j], jb_s[j]) + ig.ce(ia_s[j], ia_s[j], jb_s[i], jb_s[i]));
+				matrix_element += ig.ce(ia_s[i], ia_s[i], jb_s[j], jb_s[j]);
 
-		return 0.5 * matrix_element;
+		return matrix_element;
 
 	} else {
 

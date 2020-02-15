@@ -818,11 +818,14 @@ double Hamiltonian::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja, si
 	//assert (false);
 
 	auto [nalpha, nbeta] = bas.get_ab();
+	assert (nalpha != 0 && nbeta != 0);
 
 	auto &ia_s = bas.a(ia), 
 		 &ib_s = bas.b(ib),
 		 &ja_s = bas.a(ja),
 		 &jb_s = bas.b(jb);
+
+	assert(ia_s.size() != 0 && ib_s.size() != 0 && ja_s.size() != 0 && jb_s.size() != 0);
 
 	// the rules here will be a bit more complicated compared to the one-body operator case
 	// as alpha and beta strings can couple ( need to work out the formulas; similar to DET CI)
@@ -845,12 +848,14 @@ double Hamiltonian::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja, si
 		double matrix_element = 0.0;
 
 		// Include spin-coupled terms
+		auto ia_ptr = ia_s.data(), ja_ptr = ja_s.data(), ib_ptr = ib_s.data(), jb_ptr = jb_s.data();
 
 		for (size_t i = 0 ; i < nalpha; i++ ) 
-			for (size_t j = 0; j < nbeta; j++ ) 
-				matrix_element += (ig.ce(ia_s[i], ia_s[i], jb_s[j], jb_s[j]) + ig.ce(ia_s[j], ia_s[j], jb_s[i], jb_s[i]));
+			for (size_t j = 0; j < nbeta; j++ ) {
+				matrix_element += ig.ce(ia_s[i], ia_s[i], jb_s[j], jb_s[j]);
+			}
 
-		return 0.5 * matrix_element;
+		return matrix_element;
 
 	} else {
 
