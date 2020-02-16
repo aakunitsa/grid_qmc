@@ -40,72 +40,55 @@ Hamiltonian::Hamiltonian(Integral_factory &int_f, Basis &nel_basis) : ig(int_f),
 
 std::vector<double> Hamiltonian::build_diagonal() {
 
-	std::vector<double> tmp_H_diag(bas.get_basis_size(), 0.0);
-	auto [ nalpha, nbeta ] = bas.get_ab(); // number of alpha and beta electrons
-	size_t nel = nalpha + nbeta; // total number of electrons
-
-	for (size_t i = 0; i < bas.get_basis_size(); i++) {
-		double Hii = 0.0;
-
-		auto [ ia, ib ] = bas.unpack_str_index(i);
-		auto [num_alpha_str , num_beta_str] = bas.get_num_str(); // provides sizes of alpha and beta string sets
-		//std::cout << " ia " << ia << std::endl;
-		Hii += evaluate_core(ia, ia, ALPHA); // No Kroneker symbol because of the diagonal
-		if (nel > 1) {
-			// Check if the string index is within bounds 
-			assert ( ia < num_alpha_str );
-			Hii += evaluate_coulomb(ia, ia, ALPHA);
-		}
-		if (num_beta_str > 0) {
-
-			Hii += evaluate_core(ib, ib, BETA);
-			if (nel > 1) {
-				Hii += evaluate_coulomb(ib, ib, BETA);
-				Hii += evaluate_coulomb_coupled(ia, ib, ia, ib); // does not need Kroneker delta
-		    }	
-		}
-
-		tmp_H_diag[i] = Hii;
-		double thresh = 1e-14;
-		assert(abs(Hii - matrix(i,i)) <= thresh);
-	}
-
-	// After diagonal has been calculated - perform indirect sorting to populate iperm
-	//iperm.resize(get_basis_size());
-	//gsl_sort_index(iperm.data(), H_diag.data(), 1, get_basis_size());
-	
-	return tmp_H_diag;
-
+    std::vector<double> tmp_H_diag(bas.get_basis_size(), 0.0);
+    for (size_t i = 0; i < bas.get_basis_size(); i++) 
+        tmp_H_diag[i] = matrix(i, i);
+    // After diagonal has been calculated - perform indirect sorting to populate iperm
+    //iperm.resize(get_basis_size());
+    //gsl_sort_index(iperm.data(), H_diag.data(), 1, get_basis_size());
+    return tmp_H_diag;
 }
 
-double Hamiltonian::matrix(size_t i, size_t j) {
+double Hamiltonian_mpi::matrix(size_t i, size_t j) { // Would it make more sense to create an ABC for Hamiltonian and just derive versions for MPI/OpenMP
 
-	auto [ ia, ib ] = bas.unpack_str_index(i);
-	auto [ ja, jb ] = bas.unpack_str_index(j);
+    auto [ ia, ib ] = bas.unpack_str_index(i);
+    auto [ ja, jb ] = bas.unpack_str_index(j);
 
-	auto [ num_alpha_str, num_beta_str ]  = bas.get_num_str();
-	auto [ nalpha, nbeta ] = bas.get_ab(); // number of alpha and beta electrons
-	size_t nel = nalpha + nbeta; // total number of electrons
-	assert ( ia < num_alpha_str && ja < num_alpha_str);
-	if (nbeta > 0) assert (ib < num_beta_str && jb < num_beta_str);
-
-	double Hij = 0.0;
-
-	Hij += evaluate_core(ia, ja, ALPHA) * (ib == jb ? 1. : 0.);
-	if (nel > 1) {
-		// Check if the string index is within bounds 
-		assert ( ia < num_alpha_str && ja < num_alpha_str );
-		Hij += evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
-	}
-	if (num_beta_str > 0) {
-		Hij += evaluate_core(ib, jb, BETA)* (ia == ja ? 1. : 0.);
-		if (nel > 1) {
-			Hij += evaluate_coulomb(ib, jb, BETA) * (ia == ja ? 1. : 0.);
-			Hij += evaluate_coulomb_coupled(ia, ib, ja, jb); // does not need Kroneker delta
-	    }	
-	}
-
-	return Hij;
+    auto [ num_alpha_str, num_beta_str ]  = bas.get_num_str();
+    auto [ nalpha, nbeta ] = bas.get_ab(); // number of alpha and beta electrons
+    size_t nel = nalpha + nbeta; // total number of electrons
+    assert ( ia < num_alpha_str && ja < num_alpha_str);
+    if (nbeta > 0) assert (ib < num_beta_str && jb < num_beta_str);
+    double Hij = 0.0;
+    // Before calculating the matrix element evaluate the combined excitation
+    // order
+    int ex_order_alpha = bas.ex_order(ia, ja, ALPHA), ex_order_beta =  (nbeta > 0 ? bas.ex_order(ib, jb, BETA) : 0);
+    assert (ex_order_alpha != -1 && ex_order_beta != -1);
+    // This gets really ugly... Should be recycled some day
+    if (ex_order_alpha + ex_order_beta == 0) {
+        Hij += evaluate_core(ia, ja, ALPHA) + (nalpha > 1 ? evaluate_coulomb(ia, ja, ALPHA) : 0.0); 
+        if (nbeta > 0) {
+            Hij += evaluate_core(ib, jb, BETA);
+            if (nbeta > 1) Hij += evaluate_coulomb(ib, jb, BETA);
+            if (nel > 1)  Hij += evaluate_coulomb_coupled(ia, ib, ja, jb); 
+        }
+    // Single excitation cases
+    } else if (ex_order_alpha == 1 && ex_order_beta == 0) {
+        Hij += evaluate_core(ia, ja, ALPHA) + (nel > 1 ? evaluate_coulomb(ia, ja, ALPHA) : 0.0); 
+        if (nbeta > 0) Hij += evaluate_coulomb_coupled(ia, ib, ja, jb); 
+    } else if (ex_order_beta == 1 && ex_order_alpha == 0) {
+        Hij += evaluate_core(ib, jb, BETA) + (nbeta > 1 ? evaluate_coulomb(ib, jb, BETA) : 0.0); 
+        Hij += evaluate_coulomb_coupled(ia, ib, ja, jb); 
+    // Double excitation cases
+    } else if (ex_order_alpha == 2 && ex_order_beta == 0) {
+        Hij += evaluate_coulomb(ia, ja, ALPHA); 
+    } else if (ex_order_beta == 2 && ex_order_alpha == 0) {
+        Hij += evaluate_coulomb(ib, jb, BETA); 
+    } else if (ex_order_beta == 1 && ex_order_alpha == 1) {
+        Hij += evaluate_coulomb_coupled(ia, ib, ja, jb); 
+    }
+    
+    return Hij;
 }
 
 void Hamiltonian::save_matrix() {
@@ -177,31 +160,7 @@ std::vector<double> Hamiltonian::diag(bool save_wfn) {
 
     for (size_t i = 0; i < n_bf; i++) 
         for (int j = i; j < n_bf; j++) {
-            // Identify alpha/beta strings corresponding to i and j;
-            auto [ ia, ib ] = bas.unpack_str_index(i);
-            auto [ ja, jb ] = bas.unpack_str_index(j);
-            //printf("(%d, %d / %d, %d)\n", ia, ib, ja, jb);
-            //std::cout.flush();
-
-            assert ( ia < num_alpha_str && ja < num_alpha_str);
-            if (nbeta > 0) assert (ib < num_beta_str && jb < num_beta_str);
-            if (nbeta == 0) assert (ib == 0 && jb == 0);
-
-            double Hij = 0.0;
-
-            Hij += evaluate_core(ia, ja, ALPHA) * (ib == jb ? 1. : 0.);
-            if (nel > 1) {
-		// Check if the string index is within bounds 
-		assert ( ia < num_alpha_str && ja < num_alpha_str );
-		Hij += evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
-            }
-            if (num_beta_str > 0) {
-		Hij += evaluate_core(ib, jb, BETA)* (ia == ja ? 1. : 0.);
-		if (nel > 1) {
-                    Hij += evaluate_coulomb(ib, jb, BETA) * (ia == ja ? 1. : 0.);
-                    Hij += evaluate_coulomb_coupled(ia, ib, ja, jb); // does not need Kroneker delta
-                }	
-            }
+            double Hij = matrix(i, j);
 
             if ( i == j ) max_d = std::max(max_d, std::abs(Hij));
             if ( i != j ) max_offd = std::max(max_offd, std::abs(Hij));
@@ -345,35 +304,14 @@ std::vector<double> Hamiltonian::diag_davidson(size_t nstates) {
 
     for (size_t i = 0; i < n_bf; i++) 
         for (int j = i; j < n_bf; j++) {
-	// Identify alpha/beta strings corresponding to i and j;
 
-            auto [ ia, ib ] = bas.unpack_str_index(i);
-            auto [ ja, jb ] = bas.unpack_str_index(j);
-
-            assert ( ia < num_alpha_str && ja < num_alpha_str);
-            if (nbeta > 0) assert (ib < num_beta_str && jb < num_beta_str);
-
-            double Hij = 0.0;
-
-            Hij += evaluate_core(ia, ja, ALPHA) * (ib == jb ? 1. : 0.);
-            if (nel > 1) {
-            // Check if the string index is within bounds 
-                assert ( ia < num_alpha_str && ja < num_alpha_str );
-				Hij += evaluate_coulomb(ia, ja, ALPHA)* (ib == jb ? 1. : 0.);
-			}
-			if (num_beta_str > 0) {
-			Hij += evaluate_core(ib, jb, BETA)* (ia == ja ? 1. : 0.);
-				if (nel > 1) {
-						Hij += evaluate_coulomb(ib, jb, BETA) * (ia == ja ? 1. : 0.);
-						Hij += evaluate_coulomb_coupled(ia, ib, ja, jb); // does not need Kroneker delta
-				}	
-			}
+            double Hij = matrix(i, j); 
 
             if ( i == j ) max_d = std::max(max_d, std::abs(Hij));
             if ( i != j ) max_offd = std::max(max_offd, std::abs(Hij));
 
-			h_grid(i, j) =  Hij; // Performs bounds checking; can be disabled at compile time
-			h_grid(j, i) =  Hij; // Performs bounds checking; can be disabled at compile time
+            h_grid(i, j) =  Hij; // Performs bounds checking; can be disabled at compile time
+            h_grid(j, i) =  Hij; // Performs bounds checking; can be disabled at compile time
         }
 
     printf("Done!\n");
@@ -648,54 +586,41 @@ double Hamiltonian::evaluate_coulomb(size_t idet, size_t jdet, int type) {
 
 double Hamiltonian::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja, size_t jb) {
 
-	// More thorough testing is required in order to check if the function 
-	// works correctly
-
-	//assert (false);
-
 	auto [nalpha, nbeta] = bas.get_ab();
-
 	const auto &ia_s = bas.a(ia), 
 		 &ib_s = bas.b(ib),
 		 &ja_s = bas.a(ja),
 		 &jb_s = bas.b(jb);
-
 	// the rules here will be a bit more complicated compared to the one-body operator case
 	// as alpha and beta strings can couple ( need to work out the formulas; similar to DET CI)
 	// First, generate excitation vectors for the strings using gen_excitation
-	
 	auto [pa, froma, toa] = gen_excitation(ja_s, ia_s); 
 	auto [pb, fromb, tob] = gen_excitation(jb_s, ib_s); 
-	
 	size_t ex_order = froma.size() + fromb.size();
-
 	if ( ex_order == 2 && froma.size() == 1 && fromb.size() == 1) {
-
 		return pa * pb * ig.ce(tob[0], fromb[0], toa[0], froma[0]);
-
-	} else if ( ex_order == 0) {
-
-		// No excitations were generated
-		assert ( froma.size() ==0 && fromb.size() == 0 && ia == ja && ib == jb);
-
-		double matrix_element = 0.0;
-
-		// Include spin-coupled terms
-
-		for (size_t i = 0 ; i < nalpha; i++ ) 
-			for (size_t j = 0; j < nbeta; j++ ) 
-				matrix_element += ig.ce(ia_s[i], ia_s[i], jb_s[j], jb_s[j]);
-
-		return matrix_element;
-
+        } else if (ex_order == 1 && froma.size() == 1) {
+            double matrix_element = 0.0;
+            for (size_t i = 0; i < nbeta; i++) 
+                matrix_element += ig.ce(toa[0], froma[0], ib_s[i], ib_s[i]);
+            return matrix_element;
+        } else if (ex_order == 1 && fromb.size() == 1) {
+            double matrix_element = 0.0;
+            for (size_t i = 0; i < nalpha; i++) 
+                matrix_element += ig.ce(tob[0], fromb[0], ia_s[i], ia_s[i]);
+            return matrix_element;
+	} else if (ex_order == 0) {
+            // No excitations were generated
+            assert ( froma.size() ==0 && fromb.size() == 0 && ia == ja && ib == jb);
+            double matrix_element = 0.0;
+            // Include spin-coupled terms
+            for (size_t i = 0 ; i < nalpha; i++ ) 
+                for (size_t j = 0; j < nbeta; j++ ) 
+                    matrix_element += ig.ce(ia_s[i], ia_s[i], jb_s[j], jb_s[j]);
+            return matrix_element;
 	} else {
-
-		return 0.0;
-
+            return 0.0;
 	}
-
-	// Check if other coupling terms would be needed as well, e.g. single spin-conserving excitations
-
 }
 
 

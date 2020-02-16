@@ -193,6 +193,9 @@ int main(int argc, char **argv) {
             if (me == 0) std::cout << "Saving Hamiltonian to the text file... ";
             h.save_matrix(); // Should be executed by all ranks
             if (me == 0) std::cout << "Done!" << std::endl;
+#ifdef USE_MPI
+            h.print_row();
+#endif
 
         } else if (q.params["run_type"] == fciqmc) {
             // This requires both Hamiltonian and energy estimator

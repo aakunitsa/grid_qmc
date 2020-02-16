@@ -72,6 +72,17 @@ class Basis {
 	virtual std::vector<size_t> a(int i) = 0;
 	virtual std::vector<size_t> b(int i) = 0;
 	virtual std::vector<size_t>& get_neigh(int i) = 0;
+	int ex_order(int i, int j, int type) {
+            if ( type == ALPHA) {
+                auto [sign, from, to] = gen_excitation(a(i), a(j)); // This is inefficient; will be corrected later using move semantics
+                return to.size();
+            } else if (type == BETA) {
+                auto [sign, from, to] = gen_excitation(b(i), b(j)); // This is inefficient; will be corrected later using move semantics
+                return to.size();
+            } else {
+                return -1;
+            }
+	}
 };
 
 class DetBasis : public Basis {
@@ -110,20 +121,6 @@ class DetBasis : public Basis {
             return std::make_tuple(ialpha, ibeta);
         }
 
-	// Not sure if this function should be public or whether it is even needed...
-
-	int ex_order(int i, int j, int type) {
-
-            if ( type == ALPHA) {
-                auto [sign, from, to] = gen_excitation(a_encoder.address2str(i), a_encoder.address2str(j));
-                return to.size();
-            } else if (type == BETA) {
-                auto [sign, from, to] = gen_excitation(b_encoder.address2str(i), b_encoder.address2str(j));
-                return to.size();
-            } else {
-                return -1;
-            }
-	}
 
 	// The following functions define the mapping from the set of indeces to
 	// the set of orbital strings

@@ -21,6 +21,8 @@ class Hamiltonian_mpi {
         //std::vector<double> gen_nos(); // Same as above; should only be called if the w.f. is available
 	void save_matrix();
 	Integral_factory & get_integral_factory() { return ig; }
+        // The following method has been added purely for debugging (to compare with the Python implementation)
+        void print_row(); // Will be printed with annotations
 
     private:
 
