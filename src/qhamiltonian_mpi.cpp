@@ -550,12 +550,12 @@ double Hamiltonian_mpi::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja
             double matrix_element = 0.0;
             for (size_t i = 0; i < nbeta; i++) 
                 matrix_element += ig.ce(toa[0], froma[0], ib_s[i], ib_s[i]);
-            return matrix_element;
+            return pa * matrix_element;
         } else if (ex_order == 1 && fromb.size() == 1) {
             double matrix_element = 0.0;
             for (size_t i = 0; i < nalpha; i++) 
                 matrix_element += ig.ce(tob[0], fromb[0], ia_s[i], ia_s[i]);
-            return matrix_element;
+            return pb * matrix_element;
 	} else if (ex_order == 0) {
             // No excitations were generated
             assert ( froma.size() ==0 && fromb.size() == 0 && ia == ja && ib == jb);
@@ -617,7 +617,8 @@ void Hamiltonian_mpi::print_row() {
                 std::cout << "; ";
                 for (size_t ie = 0; ie < nb; ie++) 
                     std::cout << orbs_b_[ie] << " ";
-                std::cout << "> =  " << std::scientific << std::setprecision(20) << std::setw(28) << matrix(0, i) << std::endl;
+                std::cout << "> =  ";
+                printf("%20.10f\n", matrix(0, i));
             } else {
                 std::cout << "< ";
                 for (size_t ie = 0; ie < na; ie++) 
@@ -625,7 +626,8 @@ void Hamiltonian_mpi::print_row() {
                 std::cout << "| H | ";
                 for (size_t ie = 0; ie < na; ie++) 
                     std::cout << orbs_a_[ie] << " ";
-                std::cout << "> =  " << std::scientific << std::setprecision(20) << std::setw(28) << matrix(0, i) << std::endl;
+                std::cout << "> =  ";
+                printf("%20.10f\n", matrix(0, i));
             }
         }
     }

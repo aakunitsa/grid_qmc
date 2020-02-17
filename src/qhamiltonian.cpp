@@ -49,7 +49,7 @@ std::vector<double> Hamiltonian::build_diagonal() {
     return tmp_H_diag;
 }
 
-double Hamiltonian_mpi::matrix(size_t i, size_t j) { // Would it make more sense to create an ABC for Hamiltonian and just derive versions for MPI/OpenMP
+double Hamiltonian::matrix(size_t i, size_t j) { // Would it make more sense to create an ABC for Hamiltonian and just derive versions for MPI/OpenMP
 
     auto [ ia, ib ] = bas.unpack_str_index(i);
     auto [ ja, jb ] = bas.unpack_str_index(j);
@@ -603,12 +603,12 @@ double Hamiltonian::evaluate_coulomb_coupled(size_t ia, size_t ib, size_t ja, si
             double matrix_element = 0.0;
             for (size_t i = 0; i < nbeta; i++) 
                 matrix_element += ig.ce(toa[0], froma[0], ib_s[i], ib_s[i]);
-            return matrix_element;
+            return pa * matrix_element;
         } else if (ex_order == 1 && fromb.size() == 1) {
             double matrix_element = 0.0;
             for (size_t i = 0; i < nalpha; i++) 
                 matrix_element += ig.ce(tob[0], fromb[0], ia_s[i], ia_s[i]);
-            return matrix_element;
+            return pb * matrix_element;
 	} else if (ex_order == 0) {
             // No excitations were generated
             assert ( froma.size() ==0 && fromb.size() == 0 && ia == ja && ib == jb);
