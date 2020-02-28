@@ -34,8 +34,6 @@ int main(int argc, char **argv) {
     //std::cout << "Ground state of He (25 pt radial grid / S) : " << e[0] << std::endl;
     printf("Ground state of He (25 pt radial grid / S) : %20.12f\n", e[0]);
     assert (abs(e[0] - e_ref[0]) <= thresh);
-
     return 0;
-
 }
 

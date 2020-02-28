@@ -18,19 +18,6 @@ extern "C" void construct_rgrid_(int *nrad, int *ia);
 extern "C" void destroy_rgrid_();
 
 
-void print_vector(std::vector<double> &&v) {
-    for (auto &e : v ) 
-        std::cout << e << '\t';
-    std::cout << std::endl;
-
-}
-
-void print_vector(std::vector<double> &v) {
-    for (auto &e : v ) 
-        std::cout << e << '\t';
-    std::cout << std::endl;
-
-}
 
 Becke_grid::Becke_grid(std::map<string, int> &p) : nrad(p["nrad"]), nang(p["nang"]) {
 
@@ -42,8 +29,8 @@ Becke_grid::Becke_grid(std::map<string, int> &p) : nrad(p["nrad"]), nang(p["nang
     thetaphi_ang.resize(nang);
     // Set atomic radius
     r_at = r_m[int(p["Z"]) - 1]; 
-    printf("Atomic charge is %d", int(p["Z"]));
-    printf("Atomic radius is %13.6f", r_at);
+    printf("Atomic charge is %d\n", int(p["Z"]));
+    printf("Atomic radius is %13.6f\n", r_at);
 
     printf("Building radial grid... ");
     build_radial();
@@ -168,7 +155,7 @@ void Laplacian::apply_fortran(const double *f, double *lapl_f) {
 	int nrad = int(g.nrad);
 	int iat = ia;
 	std::copy(f, f+g.nrad, lapl_f);
-	second_deriv_(lapl_f, &iat, &nrad); // This is distructive! psi now contains laplacian of psi
+	second_deriv_(lapl_f, &iat, &nrad); // This is destructive! psi is replaced with laplacian of psi
 
 }
 
@@ -241,7 +228,7 @@ void Laplacian::test_laplacian() {
     }
     printf("E(1S) = %16.10f (%16.10f) \n", e_kin + e_pot, -0.5 * gsl_pow_int(1., -2));
 	// The following should be used for Helium only!
-	second_deriv_(psi.data(), &iat, &nrad); // This is distructive! psi now contains laplacian of psi
+	second_deriv_(psi.data(), &iat, &nrad); // See the comment above in apply_fortran
 	for (size_t i = 0; i < g.nrad; i++) 
 		max_diff = std::max(max_diff, std::abs(psi[i] - lapl_psi[i]));
 	printf("Maximum laplacian error is %.10e for 1S function \n", max_diff);
@@ -259,7 +246,7 @@ void Laplacian::test_laplacian() {
     }
     printf("E(2S) = %16.10f (%16.10f) \n", e_kin + e_pot, -0.5 * gsl_pow_int(2., -2));
 	max_diff = 0.0;
-	second_deriv_(psi.data(), &iat, &nrad); // This is distructive! psi now contains laplacian of psi
+	second_deriv_(psi.data(), &iat, &nrad); 
 	for (size_t i = 0; i < g.nrad; i++) 
 		max_diff = std::max(max_diff, std::abs(psi[i] - lapl_psi[i]));
 	printf("Maximum laplacian error is %.10e for 2S function \n", max_diff);
@@ -275,7 +262,7 @@ void Laplacian::test_laplacian() {
     }
     printf("E(3S) = %16.10f (%16.10f) \n", e_kin + e_pot, -0.5 * gsl_pow_int(3., -2));
 	max_diff = 0.0;
-	second_deriv_(psi.data(), &iat, &nrad); // This is distructive! psi now contains laplacian of psi
+	second_deriv_(psi.data(), &iat, &nrad); 
 	for (size_t i = 0; i < g.nrad; i++) 
 		max_diff = std::max(max_diff, std::abs(psi[i] - lapl_psi[i]));
 	printf("Maximum laplacian error is %.10e for 3S function \n", max_diff);
@@ -283,23 +270,25 @@ void Laplacian::test_laplacian() {
 }
 
 Laplacian::~Laplacian() {
-	destroy_rgrid_();
+    destroy_rgrid_();
 }
 
 Coulomb::Coulomb(std::map<string, int> &p) : g(p), ss(g.L_max) {
 
-    size_t num_orb = ss.size(), num_pair = num_orb * (num_orb + 1) / 2, 
-           num_eri = num_pair * (num_pair + 1) / 2;
-    couplings.resize(num_eri);
-    size_t eri_counter = 0, pair_counter = 0;
+    size_t num_orb = ss.size(), num_orb2 = num_orb * num_orb;
+    couplings.resize(num_orb2 * (num_orb2 + 1) / 2);
 
     // Couplings are assumed to be given in chemists 
     // notation as follows (ij|kl), i.e. ij refer to 
     // the first particle, whereas kl correspond to the second
 
+    // The following code block is only correct if the orbitals 
+    // are real which is not the case with current conventions
+    /*
     for (size_t i = 0; i < ss.size(); i++) {
         for (size_t j = i; j < ss.size(); j++) {
             assert ( pair_counter == (num_orb - 1) * i + j - i * (i - 1) / 2 );
+            // Equivalent encoding can be based on the minor index which is i in this case
             pair_counter++;
             for (size_t k = 0; k < i + 1; k++) {
                 for (size_t l = k; l < (k == i ? j + 1 : ss.size()); l++) {
@@ -323,6 +312,26 @@ Coulomb::Coulomb(std::map<string, int> &p) : g(p), ss(g.L_max) {
 
     assert(pair_counter == num_pair);
     assert(eri_counter == num_eri);
+
+    */
+    // The pair of indeces corresponding to the second particle should be "larger"
+    // This encoding scheme is suboptimal (stores aditional integrals) but the definition
+    // of a non-redundant set of integrals is more complicated in this case, so this convention
+    // will be used for now..
+    for (size_t i = 0; i < ss.size(); i++) {
+        for (size_t j = 0; j < ss.size(); j++) {
+            for (size_t k = i; k < ss.size(); k++) {
+                for (size_t l = (k == i ? j : 0); l < ss.size(); l++) {
+                    size_t p_min = num_orb * i + j,
+                           p_maj = num_orb * k + l;
+                    assert (p_maj >= p_min);
+                    couplings[(p_maj + 1) * p_maj / 2  + p_min] = eval_coupling(ss.aorb[i], ss.aorb[j], ss.aorb[k], ss.aorb[l]);
+                }
+            }
+        }
+    }
+    printf("Number of couplings is %zu \n", num_orb2 * (num_orb2 + 1) / 2 );
+
 }
 
 std::vector<double> Coulomb::eval_coupling(LM &lm1, LM &lm2, LM &lm3, LM &lm4) {
@@ -381,9 +390,7 @@ double Coulomb::eval_simple(double &r1, double &r2, LM &lm1, LM &lm2, LM &lm3, L
     std::vector<double> tmp(c.size());
     std::iota(tmp.begin(), tmp.end(), 0.0);
     std::transform(tmp.begin(), tmp.end(), tmp.begin(), [&](double &l) { return gsl_pow_int(f, size_t(l)) / r_max ; });
-
     return cblas_ddot(c.size(), c.data(), 1, tmp.data(), 1);
-
 }
 
 double Coulomb::eval_simple_wo_selection(double &r1, double &r2, LM &lm1, LM &lm2, LM &lm3, LM &lm4) {
@@ -445,118 +452,41 @@ double Coulomb::eval_simple_wo_selection(double &r1, double &r2, LM &lm1, LM &lm
 
 double Coulomb::eval(double &r1, double &r2, LM &lm1, LM &lm2, LM &lm3, LM &lm4) {
 
-    LM &p1lm1 = (ss.orb_id(lm1) <= ss.orb_id(lm2)) ? lm1 : lm2,
-       &p1lm2 = (ss.orb_id(lm1) <= ss.orb_id(lm2)) ? lm2 : lm1,
-       &p2lm1 = (ss.orb_id(lm3) <= ss.orb_id(lm4)) ? lm3 : lm4,
-       &p2lm2 = (ss.orb_id(lm3) <= ss.orb_id(lm4)) ? lm4 : lm3;
-
-
     double r_min = std::min(r1, r2), r_max = std::max(r1, r2), f = r_min/r_max;
-    std::vector<double> c;
-    if (ss.orb_id(p1lm1) > ss.orb_id(p2lm1) ||  ( ss.orb_id(p1lm1) == ss.orb_id(p2lm1) && ss.orb_id(p1lm2) >= ss.orb_id(p2lm2) ) ) {
-        c = couplings[coupling_id(ss.orb_id(p1lm1), ss.orb_id(p1lm2), ss.orb_id(p2lm1), ss.orb_id(p2lm2))];
-    } else {
-        c = couplings[coupling_id(ss.orb_id(p2lm1), ss.orb_id(p2lm2), ss.orb_id(p1lm1), ss.orb_id(p1lm2))];
-    }
+    std::vector<double> c = couplings[coupling_id(ss.orb_id(lm1), ss.orb_id(lm2), ss.orb_id(lm3), ss.orb_id(lm4))];
     std::vector<double> tmp(c.size());
     std::iota(tmp.begin(), tmp.end(), 0.0);
     std::transform(tmp.begin(), tmp.end(), tmp.begin(), [&](double &l) { return gsl_pow_int(f, int(l)) / r_max ; });
-
     return cblas_ddot(c.size(), c.data(), 1, tmp.data(), 1);
-
 }
 
 size_t Coulomb::coupling_id ( size_t o1, size_t o2, size_t o3, size_t o4) {
+    /*
+    // Old version for real angular orbitals (it may be easier to store couplings
+    // for real angular orbitals at the outset as opposed to converting them on 
+    // the fly when calculating coulomb matrix elements
+    // coupling_id will enforce the order automatically
+    auto o1_ = (o1 <= o2 ? o1 : o2),
+         o2_ = (o1 <= o2 ? o2 : o1),
+         o3_ = (o3 <= o4 ? o3 : o4),
+         o4_ = (o3 <= o4 ? o4 : o3);
 
-    assert ( o1 <= o2 && o3 <= o4 );
-    assert (o1 > o3 || o1 == o3 && o2 >= o4);
-
+    // Perform major based pair index encoding 
     size_t num_orb = ss.size();
-    size_t p1 = (num_orb - 1) * o1 + o2 - o1 * (o1 - 1) / 2;
-    size_t p2 = (num_orb - 1) * o3 + o4 - o3 * (o3 - 1) / 2;
-
+    size_t p1 = (num_orb - 1) * o1_ + o2_ - o1_ * (o1_ - 1) / 2;
+    size_t p2 = (num_orb - 1) * o3_ + o4_ - o3_ * (o3_ - 1) / 2;
+    // p1 is assumed major while p2 is minor; if that is not the
+    // case they should be swapped
+    if (p1 < p2) std::swap(p1, p2);
     return (p1 + 1) * p1 / 2  + p2;
-
-}
-
-void Coulomb::test_coulomb() {
-
-    size_t num_tests = 1000;
-    double r1 = 1.5, r2 = 3.5;
-    double tol = 1e-10;
-
-    std::cout << "Testing consistency of coupling evaluation subroutines..." << std::endl; 
-    std::cout << "Projected Coulomb operator will be evaluated for r1 = " << r1 << " and r2 = " << r2 << std::endl;
-    std::cout << "Angular orbital quadruplets will be generated randomly" << std::endl;
-    std::cout << "The total number of test cases will be " << num_tests << std::endl;
-     
-    default_random_engine gen;
-    uniform_int_distribution<int> u(0, ss.size()  - 1);
-
-    for (size_t i = 0; i < num_tests; i++) {
-        // For each test case generate 4 orbitals
-
-        LM o1 = ss.aorb[u(gen)],
-           o2 = ss.aorb[u(gen)],
-           o3 = ss.aorb[u(gen)],
-           o4 = ss.aorb[u(gen)];
-
-        double //d1 = eval(r1, r2, o1, o2, o3, o4),
-               d2 = eval_simple(r1, r2, o1, o2, o3, o4),
-               d3 = eval_simple_wo_selection(r1, r2, o1, o2, o3, o4);
-
-        if ( abs(d3 - d2) > tol ) {
-            printf("Test # %zu\n", i);
-            printf("Legend: \n");
-            printf("o1 corresponds to (%d, %d)\n", o1.L, o1.M);
-            printf("o2 corresponds to (%d, %d)\n", o2.L, o2.M);
-            printf("o3 corresponds to (%d, %d)\n", o3.L, o3.M);
-            printf("o4 corresponds to (%d, %d)\n", o4.L, o4.M);
-            printf("-----\n");
-
-            printf("coupling (%d %d,%d %d|%d %d, %d %d) (simple algorithm) = %18.10f \n", o1.L, o1.M, o2.L, o2.M, o3.L, o3.M, o4.L, o4.M, d3);
-            printf("coupling (%d %d,%d %d|%d %d, %d %d) (direct) = %18.10f \n", o1.L, o1.M, o2.L, o2.M, o3.L, o3.M, o4.L, o4.M, d2);
-            printf("%zu %zu | %zu %zu\n", ss.orb_id(o1), ss.orb_id(o2), ss.orb_id(o3), ss.orb_id(o4));
-            print_vector(eval_coupling(o1, o2, o3, o4));
-            printf("%zu %zu | %zu %zu\n", ss.orb_id(o2), ss.orb_id(o1), ss.orb_id(o3), ss.orb_id(o4));
-            print_vector(eval_coupling(o2, o1, o3, o4));
-            printf("%zu %zu | %zu %zu\n", ss.orb_id(o1), ss.orb_id(o2), ss.orb_id(o4), ss.orb_id(o3));
-            print_vector(eval_coupling(o1, o2, o4, o3));
-            printf("%zu %zu | %zu %zu\n", ss.orb_id(o2), ss.orb_id(o1), ss.orb_id(o4), ss.orb_id(o3));
-            print_vector(eval_coupling(o2, o1, o4, o3));
-            printf("%zu %zu | %zu %zu\n", ss.orb_id(o3), ss.orb_id(o4), ss.orb_id(o1), ss.orb_id(o2));
-            print_vector(eval_coupling(o3, o4, o1, o2));
-            printf("%zu %zu | %zu %zu\n", ss.orb_id(o4), ss.orb_id(o3), ss.orb_id(o1), ss.orb_id(o2));
-            print_vector(eval_coupling(o4, o3, o1, o2));
-            printf("%zu %zu | %zu %zu\n", ss.orb_id(o3), ss.orb_id(o4), ss.orb_id(o2), ss.orb_id(o1));
-            print_vector(eval_coupling(o3, o4, o2, o1));
-            printf("%zu %zu | %zu %zu\n", ss.orb_id(o4), ss.orb_id(o3), ss.orb_id(o2), ss.orb_id(o1));
-            print_vector(eval_coupling(o4, o3, o2, o1));
-        LM &p1lm1 = (ss.orb_id(o1) <= ss.orb_id(o2)) ? o1 : o2,
-           &p1lm2 = (ss.orb_id(o1) <= ss.orb_id(o2)) ? o2 : o1,
-           &p2lm1 = (ss.orb_id(o3) <= ss.orb_id(o4)) ? o3 : o4,
-           &p2lm2 = (ss.orb_id(o3) <= ss.orb_id(o4)) ? o4 : o3;
-
-
-        std::vector<double> c;
-        if (ss.orb_id(p1lm1) > ss.orb_id(p2lm1) ||  ( ss.orb_id(p1lm1) == ss.orb_id(p2lm1) && ss.orb_id(p1lm2) >= ss.orb_id(p2lm2) ) ) {
-            c = couplings[coupling_id(ss.orb_id(p1lm1), ss.orb_id(p1lm2), ss.orb_id(p2lm1), ss.orb_id(p2lm2))];
-        } else {
-            c = couplings[coupling_id(ss.orb_id(p2lm1), ss.orb_id(p2lm2), ss.orb_id(p1lm1), ss.orb_id(p1lm2))];
-        }
-
-        std::cout << "------" << std::endl; 
-
-        print_vector(c);
-
-
-        }
-        assert(abs(d2 - d3) <= tol);
-
-    }
-
-    std::cout << "Coulomb operator evaluation function passed all the tests!" << std::endl;
-
+    */
+    size_t num_orb = ss.size();
+    size_t p1 = num_orb * o1 + o2;
+    size_t p2 = num_orb * o3 + o4;
+    // p1 is assumed major while p2 is minor; if that is not the
+    // case they should be swapped
+    if (p1 < p2) std::swap(p1, p2);
+    return (p1 + 1) * p1 / 2  + p2;
 }
 
 void Coulomb::test_against_poisson(size_t L_max4test) {

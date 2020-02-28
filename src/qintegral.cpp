@@ -25,24 +25,24 @@ bool Integral_factory::check_orthogonality(double orth_thresh = 1e-6) {
 	double max_dev = std::numeric_limits<double>::min();
 
 	for (int i = 0; i < n1porb; i++) {
-		for (int j = 0; j < n1porb; j++) {
-			double d_prod = 0.0;
-			for (int r = 0; r < g.nrad; r++) {
-				for (int a = 0; a < g.nang; a++) {
-					int g_idx = r * g.nang + a;
-					d_prod += 4. * M_PI * g.gridw_r[r] * g.gridw_a[a] * paux_bf[ i * g.nang * g.nrad + g_idx] * paux_bf[ j * g.nang * g.nrad + g_idx ];
-				}
-			}
-
-			if (i!= j) { 
-				ortho = ortho && (abs(d_prod) <= orth_thresh);
-				max_dev = std::max(max_dev, abs(d_prod));
-			}
-			if (i == j) { 
-				ortho = ortho && (abs(d_prod - 1.0) <= orth_thresh);
-				max_dev = std::max(max_dev, abs(d_prod - 1.0));
-			}
+            for (int j = 0; j < n1porb; j++) {
+		double d_prod = 0.0;
+		for (int r = 0; r < g.nrad; r++) {
+                    for (int a = 0; a < g.nang; a++) {
+			int g_idx = r * g.nang + a;
+			d_prod += 4. * M_PI * g.gridw_r[r] * g.gridw_a[a] * paux_bf[ i * g.nang * g.nrad + g_idx] * paux_bf[ j * g.nang * g.nrad + g_idx ];
+                    }
 		}
+
+		if (i!= j) { 
+                    ortho = ortho && (abs(d_prod) <= orth_thresh);
+                    max_dev = std::max(max_dev, abs(d_prod));
+                }
+                if (i == j) { 
+                    ortho = ortho && (abs(d_prod - 1.0) <= orth_thresh);
+                    max_dev = std::max(max_dev, abs(d_prod - 1.0));
+		}
+	    }
 	}
 
 	if (!ortho) printf("Maximum deviation from orthogonality %13.6f", max_dev);
@@ -68,6 +68,9 @@ std::vector<double> Integral_factory::expand(std::vector<double> &vec) {
 }
 
 void Integral_factory::gen_bf_map(bool sort=false) {
+    //
+    // Seems to be buggy :(
+    //
     paux_bf_map.resize(n1porb);
     std::iota(paux_bf_map.begin(), paux_bf_map.end(), 0);
     if (sort && (n1porb > 1)) {
@@ -260,27 +263,26 @@ Aux_integrals::Aux_integrals(Params_reader &pr, ShellSet &aorb) : ss(aorb), Inte
 
 	if (gen_orb) {
 
-		gen_aux_basis(lthresh, orth_thresh);
-		n1porb = ss.size() * naux;
-		paux_bf.resize(n1porb * g.nrad * g.nang);
-		// Populate paux_bf using real spherical harmonics
-		// This is a naive and inefficient approach; should probably
-		// just represent all the Ylm-s on the Lebedev grid first and then 
-		// combine those with aux_bf
+            gen_aux_basis(lthresh, orth_thresh);
+            n1porb = ss.size() * naux;
+            paux_bf.resize(n1porb * g.nrad * g.nang);
+            // Populate paux_bf using real spherical harmonics
+            // This is a naive and inefficient approach; should probably
+            // just represent all the Ylm-s on the Lebedev grid first and then 
+            // combine those with aux_bf
 	
-
-		for (int ridx = 0; ridx < naux; ridx++) {
-			for (int oidx = 0; oidx < ss.size(); oidx++) {
-				auto &o = ss.aorb[oidx];
-				for (int r = 0; r < g.nrad; r++) {
-					for (int a = 0; a < g.nang; a++) {
-						auto [th, p] = g.thetaphi_ang[a];
-						double Y_real = rY(o.L, o.M, th, p);
-						paux_bf[ (ridx * ss.size() + oidx) * g.nang * g.nrad + r * g.nang + a ] = aux_bf[ridx * g.nrad + r] * Y_real;
-					}
-				}
+            for (int ridx = 0; ridx < naux; ridx++) {
+		for (int oidx = 0; oidx < ss.size(); oidx++) {
+                    auto &o = ss.aorb[oidx];
+                    for (int r = 0; r < g.nrad; r++) {
+			for (int a = 0; a < g.nang; a++) {
+                            auto [th, p] = g.thetaphi_ang[a];
+                            double Y_real = rY(o.L, o.M, th, p);
+                            paux_bf[ (ridx * ss.size() + oidx) * g.nang * g.nrad + r * g.nang + a ] = aux_bf[ridx * g.nrad + r] * Y_real;
 			}
+                    }
 		}
+            }
 
 	}
 
@@ -940,8 +942,9 @@ double Grid_integrals::ce(size_t i, size_t j, size_t k, size_t l) {
 		oset[2].M *= -1;
 		// -------
 
-		//i_ijkl += weight * r12.eval_simple(g.r[ir], g.r[kr], oset[0], oset[1], oset[2], oset[3]);
-		i_ijkl += phase * weight * r12.eval_simple(g.r[ir], g.r[kr], oset[0], oset[1], oset[2], oset[3]);
+		//i_ijkl += weight * r12.eval_simple(g.r[ir], g.r[kr], oset[0], oset[1], oset[2], oset[3]); // -- WRONG
+		//i_ijkl += phase * weight * r12.eval_simple(g.r[ir], g.r[kr], oset[0], oset[1], oset[2], oset[3]); // -- SLOW
+		i_ijkl += phase * weight * r12.eval(g.r[ir], g.r[kr], oset[0], oset[1], oset[2], oset[3]); // -- FAST
 
 	}
 #ifdef _OPENMP

@@ -23,6 +23,7 @@ class Hamiltonian_mpi {
 	Integral_factory & get_integral_factory() { return ig; }
         // The following method has been added purely for debugging (to compare with the Python implementation)
         void print_row(); // Will be printed with annotations
+        void precompute_hamiltonian();
 
     private:
 
@@ -47,6 +48,8 @@ class Hamiltonian_mpi {
 
         //std::tuple< std::vector<double>, std::vector<double> > compute_1rdm();
         //void read_matrix(); // Will be implemented later
+        bool precomputed_h;
+        std::vector<double> H_full;
 };
 
 #endif

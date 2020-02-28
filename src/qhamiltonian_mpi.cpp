@@ -36,9 +36,17 @@ Hamiltonian_mpi::Hamiltonian_mpi(Integral_factory &int_f, Basis &nel_basis) : ig
     assert (basis_size > 0);
     auto [num_alpha, num_beta] = bas.get_num_str();
     assert (num_alpha > 0);
+    precomputed_h = false;
 }
 
 std::vector<double> Hamiltonian_mpi::build_diagonal() {
+
+    if (precomputed_h) {
+        std::vector<double> H_diag(bas.get_basis_size(), 0.0);
+        for (size_t i = 0; i < bas.get_basis_size(); i++)
+            H_diag[i] = H_full[i * bas.get_basis_size() + i];
+        return H_diag;
+    }
 
     std::vector<double> tmp_H_diag(bas.get_basis_size(), 0.0), H_diag(bas.get_basis_size(), 0.0);
     for (size_t i = (size_t)me; i < bas.get_basis_size(); i += (size_t)nprocs) {
@@ -52,6 +60,8 @@ std::vector<double> Hamiltonian_mpi::build_diagonal() {
     return H_diag;
 }
 double Hamiltonian_mpi::matrix(size_t i, size_t j) { // Would it make more sense to create an ABC for Hamiltonian and just derive versions for MPI/OpenMP
+
+    if (precomputed_h) return H_full[i * bas.get_basis_size() + j]; // For profiling
 
     auto [ ia, ib ] = bas.unpack_str_index(i);
     auto [ ja, jb ] = bas.unpack_str_index(j);
@@ -178,9 +188,19 @@ std::tuple< double, double, std::vector<double> > Hamiltonian_mpi::build_full_ma
 
 }
 
+void Hamiltonian_mpi::precompute_hamiltonian() {
+    // This function is meant to be used for profiling purposes
+    double tmp1, tmp2;
+    H_full.resize(bas.get_basis_size() * bas.get_basis_size());
+    if (me == 0) std::cout << "Calculating and saving the hamiltonian for future use ... ";
+    std::tie(tmp1, tmp2, H_full) = build_full_matrix();
+    if (me == 0) std::cout << "Done!" << std::endl;
+    precomputed_h = true; // it is important that it comes after the build_full_matrix call!!
+}
+
 std::vector<double> Hamiltonian_mpi::diag(bool save_wfn) {
 
-    auto && [max_d, max_offd, H_mat] = build_full_matrix();
+    auto && [max_d, max_offd, H_mat] = (precomputed_h ? std::make_tuple(0.0, 0.0, std::move(H_full)) : build_full_matrix());
     size_t n_bf = bas.get_basis_size(), n_bf2 = n_bf * n_bf;
     std::vector<double> eigvals(n_bf, 0.0);
     if (save_wfn) gs_wfn.resize(n_bf); // Important!!!

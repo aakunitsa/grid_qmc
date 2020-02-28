@@ -12,7 +12,7 @@
 
 #define ALPHA 1
 #define BETA 0
-#define ENCODER DET::ABStrings_simple
+#define ENCODER DET::ABStrings
 
 // This is just a helper function used by DetBasis and Hamiltonian classes; It is quite natural to place it here for now
 

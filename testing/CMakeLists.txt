@@ -12,6 +12,9 @@ target_link_libraries(spherical_test.x ref_methods)
 add_executable(grid_ce_test.x grid_ce.cpp)
 target_link_libraries(grid_ce_test.x ref_methods)
 
+add_executable(coulomb_eval_test.x coulomb_eval.cpp)
+target_link_libraries(coulomb_eval_test.x ref_methods)
+
 add_executable(basis_test.x 
     basis.cpp
     ${CMAKE_SOURCE_DIR}/src/qhamiltonian.cpp
@@ -26,6 +29,12 @@ add_executable(simple_fci_test.x
     )
 target_link_libraries(simple_fci_test.x ref_methods)
 
+add_executable(simple_fci_cache_test.x 
+    simple_fci_cache.cpp
+    ${CMAKE_SOURCE_DIR}/src/qhamiltonian.cpp
+    ${CMAKE_SOURCE_DIR}/src/qbasis.cpp
+    )
+target_link_libraries(simple_fci_cache_test.x ref_methods)
 
 #add_executable(fci_test.x 
 #    fci.cpp 
@@ -82,6 +91,11 @@ add_test(
     )
 
 add_test(
+    NAME coulomb_eval_test
+    COMMAND $<TARGET_FILE:coulomb_eval_test.x> 3 1 50
+    )
+
+add_test(
     NAME basis_test
     COMMAND $<TARGET_FILE:basis_test.x> 
     )
@@ -91,6 +105,10 @@ add_test(
     COMMAND $<TARGET_FILE:simple_fci_test.x> 
     )
 
+add_test(
+    NAME simple_fci_cache_test
+    COMMAND $<TARGET_FILE:simple_fci_cache_test.x> 
+    )
 
 #add_test(
 #    NAME fci_test

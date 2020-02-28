@@ -40,13 +40,14 @@ class FCIQMC_mpi {
         int local_it_count = 0; // local iteration count for debugging purposes
 	std::map<string, int> &par;
         std::unordered_map<int, int> m_walker_ensemble;
+        // Diagonal elements of H
+        std::unordered_map<int, double> h_diag; // Will be populated after equilibration run
         //std::map<int, int> m_walker_ensemble;
         std::vector< std::vector<Walker> > local_spawned; // Stores the determinants asigned to all ranks
         std::vector<Walker> global_spawned; // Needed to store the walkers collected from all ranks and assigned to "me"
         std::vector<int> local_n_spawned, global_n_spawned;
         //std::vector<int> disp; // For MPI_Gatherv
         std::vector<int> sdisp, rdisp; // For MPI_Alltoallv
-
 
         int m_N_global, m_N;
         int m_N_uniq_global, m_N_uniq; 
@@ -67,7 +68,7 @@ class FCIQMC_mpi {
 
 	// Member functions
 
-        void run_step(bool verbose = false);
+        void run_step(bool verbose = false, bool equil = false);
         void initialize(bool uniform = true);
         // Update energy shift; Not used in the present code - is reserved for the production version
         void set_shift(double E_T) { m_E_T = E_T; };

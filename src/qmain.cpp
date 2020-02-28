@@ -129,6 +129,7 @@ int main(int argc, char **argv) {
         // For CI calculations we don't use estimators
         if (q.params["run_type"] == ci) {
             std::vector<double> en;
+            double e_min, e_max;
             if (me == 0) {
                 printf("***Performing Hamiltonian diagonalization***\n");
             }
@@ -147,6 +148,8 @@ int main(int argc, char **argv) {
                 size_t saved_states = std::min(n_states, e.size());
                 en.resize(saved_states);
                 std::copy(e.begin(), std::next(e.begin(), saved_states), en.begin());
+                e_min = *std::min_element(e.begin(), e.end());
+                e_max = *std::max_element(e.begin(), e.end());
             } else {
                 // Diagonalize in the subspace
                 auto d = h.build_diagonal();
@@ -163,6 +166,8 @@ int main(int argc, char **argv) {
                 std::sort(e.begin(), e.end());
                 en.resize(e.size());
                 std::copy(e.begin(), e.end(), en.begin());
+                e_min = *std::min_element(e.begin(), e.end());
+                e_max = *std::max_element(e.begin(), e.end());
             }
 
             // This has been added for debugging purposes (will be removed later);
@@ -178,10 +183,13 @@ int main(int argc, char **argv) {
             }
 
             if (me == 0) {
+                if (q.params["fci_subspace"] > 0) std::cout << "Printing results of a subspace diagonalization" << std::endl;
                 std::cout << " Printing the first " << en.size() << " eigenvalues of the hamiltonian " << std::endl;
                 std::cout << std::scientific;
                 for (auto &energy : en) 
                     std::cout << energy << std::endl;
+                std::cout << " Minimum eigenvalue is " << e_min << std::endl;
+                std::cout << " Maximum eigenvalue is " << e_max << std::endl;
             }
 
         } else if (q.params["run_type"] == save_h) {
@@ -206,10 +214,12 @@ int main(int argc, char **argv) {
             Hamiltonian h(*g_int, *basis);
 #else
             Hamiltonian_mpi h(*g_int, *basis);
+            // This temporary
+            h.precompute_hamiltonian(); // only works for mpi version for now
 #endif
             if (q.params["est_type"] == direct) {
                 proj_en = new ProjEstimator(q.params, *g_int, *basis);
-            } else if (q.params["est_type"] == aux) {
+            } else if (q.params["est_type"] == mixed) {
                 proj_en = new MixedBasisEstimator(q, *g_int, *basis);
             }
             with_estimator = true;

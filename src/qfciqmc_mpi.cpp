@@ -359,6 +359,7 @@ void FCIQMC_mpi::run() {
             B = 1.0; // default damping parameter for population control
 
         double t_equil, t_prod;
+        bool equil_mode = true;
 
         // Running statistics (GSL)
         gsl_rstat_workspace *rstat_m, *rstat_g;
@@ -379,7 +380,7 @@ void FCIQMC_mpi::run() {
 	    int N_after, N_before = m_N_global; // Global has to be up-to-date
             for (size_t istep = 0; istep < m_steps_per_block; istep++) {
                 local_it_count++;
-                run_step(debug);
+                run_step(debug, equil_mode);
                 MPI_Barrier(MPI_COMM_WORLD);
                 update_walker_lists();
                 m_N = 0; m_N_uniq = 0;
@@ -415,12 +416,13 @@ void FCIQMC_mpi::run() {
         }
 
         t_prod = -MPI_Wtime();
+        equil_mode = false; // We will now record diagonal elements of the Hamiltonian
 
         for (size_t iblock = 0; iblock < m_N_blocks; iblock++) {
 	    int N_after, N_before = m_N_global;
             for (size_t istep = 0; istep < m_steps_per_block; istep++) {
                 local_it_count++;
-                run_step(debug);
+                run_step(debug, equil_mode);
                 MPI_Barrier(MPI_COMM_WORLD);
                 update_walker_lists();
                 m_N = 0; m_N_uniq = 0;
@@ -480,7 +482,7 @@ void FCIQMC_mpi::run() {
         
 }
 
-void FCIQMC_mpi::run_step(bool verbose) {
+void FCIQMC_mpi::run_step(bool verbose, bool equil) {
 
     int basis_size = int(gb.get_basis_size());
     const int N_0 = m_N; // Local walker count; N_pr should coincide with this number at the end of the loop
@@ -526,7 +528,15 @@ void FCIQMC_mpi::run_step(bool verbose) {
         }
         //std::cout << "Finished spawning for walker # " << i << endl;
         // Birth-death process
-        double rate = dt * (gh.matrix(i, i) - m_E_T) * n_walkers;
+        double h_ii;
+        if (equil) {
+            h_ii = gh.matrix(i, i);
+        } else {
+            // Attemp to find the element in the lookup table; calculate and store if it's not there
+            if (h_diag.find(i) == h_diag.end()) h_diag[i] = gh.matrix(i, i); 
+            h_ii = h_diag[i];
+        }
+        double rate = dt * (h_ii - m_E_T) * n_walkers;
         int nkill = int(abs(rate));
         if((abs(rate) - nkill) > u(g)) nkill++;
 
