@@ -17,10 +17,12 @@ extern "C" int construct_grid_ang_(int *ag, double *x, double *y, double *z, dou
 extern "C" void construct_rgrid_(int *nrad, int *ia);
 extern "C" void destroy_rgrid_();
 
-
-
 Becke_grid::Becke_grid(std::map<string, int> &p) : nrad(p["nrad"]), nang(p["nang"]) {
-
+#ifdef USE_MPI
+    MPI_Comm_rank(MPI_COMM_WORLD, &me);
+#else
+    me = 0;
+#endif
     assert (nrad > 0 && nang > 0);
     r.resize(nrad);
     gridw_r.resize(nrad);
@@ -29,15 +31,17 @@ Becke_grid::Becke_grid(std::map<string, int> &p) : nrad(p["nrad"]), nang(p["nang
     thetaphi_ang.resize(nang);
     // Set atomic radius
     r_at = r_m[int(p["Z"]) - 1]; 
-    printf("Atomic charge is %d\n", int(p["Z"]));
-    printf("Atomic radius is %13.6f\n", r_at);
+    if (me == 0) {
+        printf("Atomic charge is %d\n", int(p["Z"]));
+        printf("Atomic radius is %13.6f\n", r_at);
+    }
 
-    printf("Building radial grid... ");
+    if (me == 0) printf("Building radial grid... ");
     build_radial();
-    printf("Done.\n");
-    printf("Building angular grid... ");
+    if (me == 0) printf("Done.\n");
+    if (me == 0) printf("Building angular grid... ");
     build_angular();
-    printf("Done.\n");
+    if (me == 0) printf("Done.\n");
 
 }
 
@@ -64,10 +68,10 @@ void Becke_grid::build_angular() {
             ld_by_order(nang, x, y, z, gridw_a.data());
             L_max = size_t(precision_table(j)/2.);
 #ifdef POLYMER
-			// Override the grid produced by CXX code and replace it with the one used in fortran
-			std::cout << " Polymer grid will be employed " << std::endl;
-			int na = int(nang);
-			L_max = (size_t)construct_grid_ang_(&na, x, y, z, gridw_a.data());
+            // Override the grid produced by CXX code and replace it with the one used in fortran
+            if (me == 0) std::cout << " Polymer grid will be employed " << std::endl;
+            int na = int(nang);
+            L_max = (size_t)construct_grid_ang_(&na, x, y, z, gridw_a.data());
 #endif
             for (size_t i = 0; i < nang; i++) {
                 xyz_ang[i][0] = x[i];
@@ -85,7 +89,7 @@ void Becke_grid::build_angular() {
         }
     }
     if(!avail_grid) {
-        printf("Error: requested Lebedev grid is not available!\n");
+        if(me == 0) printf("Error: requested Lebedev grid is not available!\n");
         exit(1);
     }
 }
@@ -140,23 +144,26 @@ void Becke_grid::test_grid() {
 }
 
 Laplacian::Laplacian(map<string, int> &p) : g(p) {
+#ifdef USE_MPI
+    MPI_Comm_rank(MPI_COMM_WORLD, &me);
+#else
+    me = 0;
+#endif
     d1.resize(g.nrad);
     d2.resize(g.nrad);
-	ia = int(p["Z"]);
-	// Grid parameters
-	int nrad = int(g.nrad);
-	int iat = ia;
-	construct_rgrid_(&nrad, &iat);
+    ia = int(p["Z"]);
+    // Grid parameters
+    int nrad = int(g.nrad);
+    int iat = ia;
+    construct_rgrid_(&nrad, &iat);
 }
 
 void Laplacian::apply_fortran(const double *f, double *lapl_f) {
-
-	// This is just a thin wrapper around second_deriv_; see below
-	int nrad = int(g.nrad);
-	int iat = ia;
-	std::copy(f, f+g.nrad, lapl_f);
-	second_deriv_(lapl_f, &iat, &nrad); // This is destructive! psi is replaced with laplacian of psi
-
+    // This is just a thin wrapper around second_deriv_; see below
+    int nrad = int(g.nrad);
+    int iat = ia;
+    std::copy(f, f+g.nrad, lapl_f);
+    second_deriv_(lapl_f, &iat, &nrad); // This is destructive! psi is replaced with laplacian of psi
 }
 
 void Laplacian::apply(const double *f, double *lapl_f) {
@@ -206,13 +213,9 @@ void Laplacian::test_laplacian() {
     std::cout << "Testing the Laplcaian class" << std::endl; 
     std::cout << "The energies of the first three states of hydorgen will be calculated " << std::endl;
     std::cout << "and compared with exact (non-relativistic) results " << std::endl;
-
-
-	int nrad = int(g.nrad);
-	int iat = ia;
-
-	double max_diff = 0.0;
-
+    int nrad = int(g.nrad);
+    int iat = ia;
+    double max_diff = 0.0;
     std::vector<double> lapl_psi(g.nrad, 0.0);
     std::vector<double> psi(g.nrad, 0.0);
     double e_kin, e_pot;
@@ -274,7 +277,11 @@ Laplacian::~Laplacian() {
 }
 
 Coulomb::Coulomb(std::map<string, int> &p) : g(p), ss(g.L_max) {
-
+#ifdef USE_MPI
+    MPI_Comm_rank(MPI_COMM_WORLD, &me);
+#else
+    me = 0;
+#endif
     size_t num_orb = ss.size(), num_orb2 = num_orb * num_orb;
     couplings.resize(num_orb2 * (num_orb2 + 1) / 2);
 
@@ -330,7 +337,7 @@ Coulomb::Coulomb(std::map<string, int> &p) : g(p), ss(g.L_max) {
             }
         }
     }
-    printf("Number of couplings is %zu \n", num_orb2 * (num_orb2 + 1) / 2 );
+    if (me == 0) printf("Number of couplings is %zu \n", num_orb2 * (num_orb2 + 1) / 2 );
 
 }
 

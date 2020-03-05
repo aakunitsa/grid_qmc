@@ -20,35 +20,37 @@ extern "C" void read_orbitals_(double *coeff);
 Integral_factory::Integral_factory(std::map<string, int> &p) : g(p), lp(p) {};
 
 bool Integral_factory::check_orthogonality(double orth_thresh = 1e-6) {
+#ifdef USE_MPI
+    MPI_Comm_rank(MPI_COMM_WORLD, &me);
+#else
+    me = 0;
+#endif
+    bool ortho = true;
+    double max_dev = std::numeric_limits<double>::min();
 
-	bool ortho = true;
-	double max_dev = std::numeric_limits<double>::min();
-
-	for (int i = 0; i < n1porb; i++) {
-            for (int j = 0; j < n1porb; j++) {
-		double d_prod = 0.0;
-		for (int r = 0; r < g.nrad; r++) {
-                    for (int a = 0; a < g.nang; a++) {
-			int g_idx = r * g.nang + a;
-			d_prod += 4. * M_PI * g.gridw_r[r] * g.gridw_a[a] * paux_bf[ i * g.nang * g.nrad + g_idx] * paux_bf[ j * g.nang * g.nrad + g_idx ];
-                    }
-		}
-
-		if (i!= j) { 
-                    ortho = ortho && (abs(d_prod) <= orth_thresh);
-                    max_dev = std::max(max_dev, abs(d_prod));
+    for (int i = 0; i < n1porb; i++) {
+        for (int j = 0; j < n1porb; j++) {
+            double d_prod = 0.0;
+            for (int r = 0; r < g.nrad; r++) {
+                for (int a = 0; a < g.nang; a++) {
+                    int g_idx = r * g.nang + a;
+                    d_prod += 4. * M_PI * g.gridw_r[r] * g.gridw_a[a] * paux_bf[ i * g.nang * g.nrad + g_idx] * paux_bf[ j * g.nang * g.nrad + g_idx ];
                 }
-                if (i == j) { 
-                    ortho = ortho && (abs(d_prod - 1.0) <= orth_thresh);
-                    max_dev = std::max(max_dev, abs(d_prod - 1.0));
-		}
+	    }
+
+            if (i!= j) { 
+                ortho = ortho && (abs(d_prod) <= orth_thresh);
+                max_dev = std::max(max_dev, abs(d_prod));
+            }
+            if (i == j) { 
+                ortho = ortho && (abs(d_prod - 1.0) <= orth_thresh);
+                max_dev = std::max(max_dev, abs(d_prod - 1.0));
 	    }
 	}
+    }
 
-	if (!ortho) printf("Maximum deviation from orthogonality %13.6f", max_dev);
-
-	return ortho;
-
+    if (!ortho && me == 0) printf("Maximum deviation from orthogonality %13.6f", max_dev);
+    return ortho;
 }
 
 std::vector<double> Integral_factory::expand(std::vector<double> &vec) {
@@ -337,19 +339,21 @@ bool Aux_integrals::read_orbs() {
 	// this needs to be refactored
 
 	if ( size_t(pmaxngrid) != g.nang * g.nrad || pnatom != 1 ) {
-		std::cout << " The grid used to generate the orbitals is inconsistent with the current grid! " << std::endl;
+            if (me == 0) {
+                std::cout << " The grid used to generate the orbitals is inconsistent with the current grid! " << std::endl;
 		std::cout << " The orbitals from ORBITALS.DAT file will not be used! " << std::endl;
+            }
 	} else {
-		std::cout << porb << " orbitals will be read " << std::endl;
-		paux_bf.resize(porb * pmaxngrid);
-		if (!binary_mode) {
-			for (size_t i = 0; i < size_t (porb * pmaxngrid); i++ ) 
-				orb_file >> paux_bf[i];
-		} else {
-			// use fortran subroutine
-			std::cout << "Extracting orbitals from the binary file " << std::endl;
-			read_orbitals_(paux_bf.data());
-		} 
+            if (me == 0) std::cout << porb << " orbitals will be read " << std::endl;
+            paux_bf.resize(porb * pmaxngrid);
+            if (!binary_mode) {
+		for (size_t i = 0; i < size_t (porb * pmaxngrid); i++ ) 
+                    orb_file >> paux_bf[i];
+            } else {
+                // use fortran subroutine
+		if (me == 0) std::cout << "Extracting orbitals from the binary file " << std::endl;
+		read_orbitals_(paux_bf.data());
+	    } 
 	}
 
 	orb_file.close();
@@ -406,8 +410,10 @@ void Aux_integrals::gen_aux_basis(double lthresh, double orth_thresh) {
 	bool status = arma::eig_sym(es, ev, S);
 	assert ( status );
 
-	std::cout << " Maximum eigenvalue of the overlap matrix is " << std::scientific << es.max() << std::endl;
-	std::cout << " Minimum eigenvalue of the overlap matrix is " << std::scientific << es.min() << std::endl;
+        if (me == 0) {
+            std::cout << " Maximum eigenvalue of the overlap matrix is " << std::scientific << es.max() << std::endl;
+            std::cout << " Minimum eigenvalue of the overlap matrix is " << std::scientific << es.min() << std::endl;
+        }
 
 	//ev.print("Eigenvectors of the original overlap matrix: ");
 	//es.print("Eigenvalues : ");
@@ -469,7 +475,7 @@ void Aux_integrals::gen_aux_basis(double lthresh, double orth_thresh) {
 
 	bool within_thresh = arma::all(arma::vectorise(diff) <= orth_thresh);
 
-	if (!within_thresh) {
+	if (!within_thresh && me == 0) {
 		std::cout << " Warning! Orthogonalisation error is large than the requested threshold! "  << std::endl;
 		std::cout << diff.max() << std::endl;
 	}
@@ -477,7 +483,7 @@ void Aux_integrals::gen_aux_basis(double lthresh, double orth_thresh) {
 	// If the grid is small -- print new overlap matrix for visual 
 	// inspection
 	
-	if ( g.nrad <= 25 ) {
+	if ( g.nrad <= 25 && me == 0) {
 		arma::mat overlap = orth_aux_bas.t() * W * orth_aux_bas;
 		overlap.print(" Overlap matrix for the orthogonal basis: " );
 	}
@@ -701,14 +707,11 @@ Aux_integrals::~Aux_integrals() {
 // Saved integrals class
 
 Saved_integrals::Saved_integrals(Params_reader &pr) : Integral_factory(pr.params) {
-
-	good = read_fcidump(pr.fcidump_file);
-	if (!good) {
-		std::cout << " WARNING: reading integrals from disk failed! " << std::endl;
-	}
-
+    good = read_fcidump(pr.fcidump_file);
+    if (!good && me == 0) {
+        std::cout << " WARNING: reading integrals from disk failed! " << std::endl;
+    }
 }
-
 
 bool Saved_integrals::read_fcidump(string &int_file) {
 
@@ -722,13 +725,13 @@ bool Saved_integrals::read_fcidump(string &int_file) {
 	size_t nrecords =0 ;
 
 	if (!poly_dump.is_open())  {
-		std::cout << " FCIDUMP file was not found " << std::endl;
+		if (me == 0) std::cout << " FCIDUMP file was not found " << std::endl;
 		return false;
 	}
 
-	std::cout << " Reading FCIDUMP " << std::endl;
+	if (me == 0) std::cout << " Reading FCIDUMP " << std::endl;
 	poly_dump >> porb;
-	std::cout << " Number of basis function in the fcidump file is " << porb << std::endl;
+	if (me == 0) std::cout << " Number of basis function in the fcidump file is " << porb << std::endl;
 	if (porb > 55109 ) std::cout << " WARNING: the number of orbitals may be too large for the hashing scheme!" << std::endl;
 
 	n1porb = porb; // !!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -788,7 +791,7 @@ bool Saved_integrals::read_fcidump(string &int_file) {
 
 	} while (!poly_dump.eof()) ;
 
-	std::cout << "Finished reading FCIDUMP! " << nrecords << " have been processed." <<  std::endl; 
+	if(me == 0) std::cout << "Finished reading FCIDUMP! " << nrecords << " have been processed." <<  std::endl; 
 
 	poly_dump.close();
 
@@ -797,12 +800,9 @@ bool Saved_integrals::read_fcidump(string &int_file) {
 }
 
 double Saved_integrals::hc(size_t i_, size_t j_) {
-    
     size_t i = i_, j = j_;
-
-	if (i > j) std::swap(i, j);
-	return hcore[i*n1porb + j];
-
+    if (i > j) std::swap(i, j);
+    return hcore[i*n1porb + j];
 }
 
 
@@ -833,12 +833,9 @@ double Saved_integrals::ce(size_t i_, size_t j_, size_t k_, size_t l_) {
 
 
 Grid_integrals::Grid_integrals(std::map<string, int> &p, ShellSet &aorb) : ss(aorb), r12(p), Integral_factory(p) {
-
 	// Numerical thresholds
 	double orth_thresh = 1e-6; // Very mild orthogonalisation accuracy threshold
-
 	Znuc = double(p["Z"]);
-
 	n1porb = ss.size() * g.nrad;
 	paux_bf.resize(n1porb * g.nrad * g.nang);
 	aux_bf.resize(g.nrad * g.nrad);
@@ -846,18 +843,17 @@ Grid_integrals::Grid_integrals(std::map<string, int> &p, ShellSet &aorb) : ss(ao
 	for (int i = 0; i < g.nrad; i++) aux_bf[i * g.nrad + i] = 1./ sqrt(g.gridw_r[i]);
 
 	for (int ridx = 0; ridx < g.nrad; ridx++) {
-		for (int oidx = 0; oidx < ss.size(); oidx++) {
-			auto &o = ss.aorb[oidx];
-			for (int r = 0; r < g.nrad; r++) {
-				for (int a = 0; a < g.nang; a++) {
-					auto [th, p] = g.thetaphi_ang[a];
-					double Y_real = rY(o.L, o.M, th, p);
-					paux_bf[ (ridx * ss.size() + oidx) * g.nang * g.nrad + r * g.nang + a ] = aux_bf[ridx * g.nrad + r] * Y_real;
-				}
-			}
+            for (int oidx = 0; oidx < ss.size(); oidx++) {
+		auto &o = ss.aorb[oidx];
+		for (int r = 0; r < g.nrad; r++) {
+                    for (int a = 0; a < g.nang; a++) {
+			auto [th, p] = g.thetaphi_ang[a];
+			double Y_real = rY(o.L, o.M, th, p);
+			paux_bf[ (ridx * ss.size() + oidx) * g.nang * g.nrad + r * g.nang + a ] = aux_bf[ridx * g.nrad + r] * Y_real;
+                    }
 		}
+            }
 	}
-
 	bool orth = check_orthogonality(orth_thresh);
 	assert (orth);
         max_cache_size = std::max(0, p["max_cache_size"]); // Integral cache

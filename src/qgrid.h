@@ -6,6 +6,10 @@
 #include <string>
 #include "qorbitals.h"
 
+#ifdef USE_MPI
+#include <mpi.h>
+#endif
+
 using namespace std;
 
 class Becke_grid {
@@ -30,6 +34,7 @@ class Becke_grid {
         double r_m[17] = { 0.472,0.472,1.370,0.992,0.803,0.661,0.614,0.567,
                      0.472,0.472,1.701,1.417,1.181,1.039,0.945,0.945,
                      0.945 };
+        int me;
 };
 
 class Laplacian {
@@ -44,7 +49,7 @@ class Laplacian {
         Becke_grid g;
         vector<double> d1, d2;
 	int ia;
-
+        int me;
 };
 
 class Coulomb {
@@ -66,7 +71,7 @@ class Coulomb {
         Becke_grid g;
         ShellSet ss;
         vector< vector<double> > couplings;
-
+        int me;
 };
 
 #endif

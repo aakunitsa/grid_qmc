@@ -142,7 +142,7 @@ std::tuple< double, double, std::vector<double> > Hamiltonian_mpi::build_full_ma
         int j = idx % (int)n_bf;
         int i = ((int)idx - j) / (int)n_bf;
 
-        double Hij = matrix(i, j);
+        double Hij = matrix(i, j); // !!
 
         if ( i == j ) local_max_d = std::max(local_max_d, std::abs(Hij));
         if ( i != j ) local_max_offd = std::max(local_max_offd, std::abs(Hij));
@@ -190,10 +190,11 @@ std::tuple< double, double, std::vector<double> > Hamiltonian_mpi::build_full_ma
 
 void Hamiltonian_mpi::precompute_hamiltonian() {
     // This function is meant to be used for profiling purposes
-    double tmp1, tmp2;
+    if (precomputed_h) return;
     H_full.resize(bas.get_basis_size() * bas.get_basis_size());
     if (me == 0) std::cout << "Calculating and saving the hamiltonian for future use ... ";
-    std::tie(tmp1, tmp2, H_full) = build_full_matrix();
+    auto && [tmp1, tmp2, H_full_] = build_full_matrix();
+    std::copy(H_full_.begin(), H_full_.end(), H_full.begin()); // not very efficient but should work
     if (me == 0) std::cout << "Done!" << std::endl;
     precomputed_h = true; // it is important that it comes after the build_full_matrix call!!
 }

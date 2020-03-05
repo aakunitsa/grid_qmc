@@ -42,7 +42,9 @@ int main(int argc, char **argv) {
     MPI_Comm_size(MPI_COMM_WORLD, &nproc);
 #endif
     // Read the input file
-    if (me == 0) print_banner();
+    if (me == 0) { 
+        print_banner();
+    }
     Params_reader q(argc, argv);
     q.perform();
 
@@ -59,9 +61,8 @@ int main(int argc, char **argv) {
         //vmc_he.run_test();
     }
     */
-	// Tests fo various components defined in qgrid.cpp/h
 	
-// Testing random seed class
+// Quick test of the random seed class
 
 /*
     if (q.params["rng"] == 32) {
@@ -107,6 +108,7 @@ int main(int argc, char **argv) {
     double t_max;
 #endif
     // Set up the integral factory
+    if (me == 0) printf("***Integrals****\n");
     if(q.params["int_type"] == grid) {
         g_int = new Grid_integrals(q.params, ss);
     } else if(q.params["int_type"] == aux) {
@@ -124,6 +126,7 @@ int main(int argc, char **argv) {
         }
     } else {
         // Create basis
+        if (me == 0) printf("***N-electron Basis***\n");
         basis = new DetBasis(q.params, g_int->n1porb);
         with_basis = true;
         // For CI calculations we don't use estimators
@@ -215,8 +218,9 @@ int main(int argc, char **argv) {
 #else
             Hamiltonian_mpi h(*g_int, *basis);
             // This temporary
-            h.precompute_hamiltonian(); // only works for mpi version for now
+            //h.precompute_hamiltonian(); // only works for mpi version for now
 #endif
+            if (me == 0) printf("***Energy estimator***\n");
             if (q.params["est_type"] == direct) {
                 proj_en = new ProjEstimator(q.params, *g_int, *basis);
             } else if (q.params["est_type"] == mixed) {

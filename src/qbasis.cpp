@@ -5,10 +5,15 @@
 #include <iostream>
 #include <gsl/gsl_vector.h>
 #include <gsl/gsl_sort.h>
+#include <unordered_set>
 
 
 Basis::Basis(std::map<std::string, int> &p, int n1porb_) : n1porb(n1porb_), nel(p["electrons"]) {
-
+#ifdef USE_MPI
+    MPI_Comm_rank(MPI_COMM_WORLD, &me);
+#else
+    me = 0;
+#endif
 	// Note : n1porb does not have to coincide with the parameter in the Integral_factory 
 	//        class; For now I will leave it up to a programmer to ensure that
 	//        the class works with Hamiltonian as intended, i.e. the orbital labels 
@@ -21,7 +26,7 @@ Basis::Basis(std::map<std::string, int> &p, int n1porb_) : n1porb(n1porb_), nel(
 	// the given multiplicity
 	
 	if ( (nel + mult - 1) % 2 != 0 || (nel - mult + 1) % 2 != 0 || nel + 1 < mult ) {
-		printf(" Inconsistent charge / multiplicity! \n" );
+		if (me == 0) printf(" Inconsistent charge / multiplicity! \n" );
 		assert ( (nel + mult - 1) % 2 == 0 &&  (nel - mult + 1) % 2 == 0 && nel + 1 >= mult);
 	} else {
 		nalpha = (nel + mult - 1) / 2; // Can never be zero
@@ -30,10 +35,12 @@ Basis::Basis(std::map<std::string, int> &p, int n1porb_) : n1porb(n1porb_), nel(
 
 	// I will remove the printout later since it will reappear every time when we construct the class
 
-	std::cout << "Based one the combination of charge/multiplicity from the input file: " << std::endl;
-	std::cout << "=> The number of alpha electrons is " << nalpha << std::endl;
-	std::cout << "=> The number of beta electrons is " << nbeta << std::endl;
-	std::cout << "=> Multiplicity : " << mult << std::endl; 
+        if (me == 0) {
+            std::cout << "Based one the combination of charge/multiplicity from the input file: " << std::endl;
+            std::cout << "=> The number of alpha electrons is " << nalpha << std::endl;
+            std::cout << "=> The number of beta electrons is " << nbeta << std::endl;
+            std::cout << "=> Multiplicity : " << mult << std::endl; 
+        }
 
 	assert ( nalpha + nbeta == nel ) ;
 
@@ -43,8 +50,123 @@ Basis::Basis(std::map<std::string, int> &p, int n1porb_) : n1porb(n1porb_), nel(
 }
 
 void DetBasis::build_basis() {
+    // This function uses the simplest least efficient algorithm that I could think of
+    // but this still should be much better than the reference implementation below (but the logic is
+    // cumbersome)
 
-    std::cout << "Generating connectivity list for the basis " << std::endl;
+    if (me == 0) std::cout << "Generating connectivity list for the N-electron basis " << std::endl;
+    size_t bas_size = get_basis_size();
+    size_t n1porb = (size_t)get_n1porb();
+    auto [na, nb] = get_ab();
+    for (size_t i = 0; i < bas_size; i++) {
+	std::vector<size_t> neigh_list {i};
+	auto [ia, ib] = unpack_str_index(i);
+        std::vector<size_t> salpha, sbeta, dalpha, dbeta;
+        auto ref_alpha = a_encoder.address2str(ia);
+        for (size_t iocc = 0; iocc < na; iocc++) {
+            std::unordered_set<size_t> occ_i(ref_alpha.begin(), ref_alpha.end());
+            occ_i.erase(ref_alpha[iocc]);
+            std::vector<size_t> new_alpha_base1(ref_alpha.begin(), ref_alpha.end());
+            new_alpha_base1.erase(std::next(new_alpha_base1.begin(), iocc));
+            for (size_t ivir = 0; ivir < n1porb; ivir++) {
+                if (ivir == ref_alpha[iocc] || occ_i.find(ivir) != occ_i.end()) 
+                    continue;
+                else {
+                    std::vector<size_t> new_alpha1(new_alpha_base1.begin(), new_alpha_base1.end());
+                    new_alpha1.push_back(ivir);
+                    std::sort(new_alpha1.begin(), new_alpha1.end());
+                    salpha.push_back(a_encoder.str2address(new_alpha1));
+                    // If a double excited determinant can be formed => find the second OV pair
+                    if (new_alpha_base1.size() != 0) {
+                        for (size_t jocc = iocc + 1; jocc < n1porb; jocc++) {
+                            std::unordered_set<size_t> occ_ij(occ_i); // Hopefully, this is a deep copy
+                            occ_ij.erase(ref_alpha[jocc]);
+                            std::vector<size_t> new_alpha_base2(ref_alpha.begin(), ref_alpha.end());
+                            new_alpha_base2.erase(std::next(new_alpha_base2.begin(), iocc));
+                            new_alpha_base2.erase(std::next(new_alpha_base2.begin(), jocc - 1));
+                            for (size_t jvir = ivir + 1; jvir < n1porb; jvir++) {
+                                if (jvir == ref_alpha[jocc] || occ_ij.find(jvir) != occ_ij.end()) 
+                                    continue;
+                                else {
+                                    std::vector<size_t> new_alpha2(new_alpha_base2.begin(), new_alpha_base2.end());
+                                    new_alpha2.push_back(ivir);
+                                    new_alpha2.push_back(jvir);
+                                    std::sort(new_alpha2.begin(), new_alpha2.end());
+                                    dalpha.push_back(a_encoder.str2address(new_alpha2));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Same but for beta strings if we happen to have any
+        if (nb > 0) {
+            auto ref_beta = b_encoder.address2str(ib);
+            for (size_t iocc = 0; iocc < nb; iocc++) {
+                std::unordered_set<size_t> occ_i(ref_beta.begin(), ref_beta.end());
+                occ_i.erase(ref_beta[iocc]);
+                std::vector<size_t> new_beta_base1(ref_beta.begin(), ref_beta.end());
+                new_beta_base1.erase(std::next(new_beta_base1.begin(), iocc));
+                for (size_t ivir = 0; ivir < n1porb; ivir++) {
+                    if (ivir == ref_beta[iocc] || occ_i.find(ivir) != occ_i.end()) 
+                        continue;
+                    else {
+                        std::vector<size_t> new_beta1(new_beta_base1.begin(), new_beta_base1.end());
+                        new_beta1.push_back(ivir);
+                        std::sort(new_beta1.begin(), new_beta1.end());
+                        sbeta.push_back(b_encoder.str2address(new_beta1));
+                        // If a double excited determinant can be formed => find the second OV pair
+                        if (new_beta_base1.size() != 0) {
+                            for (size_t jocc = iocc + 1; jocc < n1porb; jocc++) {
+                                std::unordered_set<size_t> occ_ij(occ_i); // Hopefully, this is a deep copy
+                                occ_ij.erase(ref_beta[jocc]);
+                                std::vector<size_t> new_beta_base2(ref_beta.begin(), ref_beta.end());
+                                new_beta_base2.erase(std::next(new_beta_base2.begin(), iocc));
+                                new_beta_base2.erase(std::next(new_beta_base2.begin(), jocc - 1));
+                                for (size_t jvir = ivir + 1; jvir < n1porb; jvir++) {
+                                    if (jvir == ref_beta[jocc] || occ_ij.find(jvir) != occ_ij.end()) 
+                                        continue;
+                                    else {
+                                        std::vector<size_t> new_beta2(new_beta_base2.begin(), new_beta_base2.end());
+                                        new_beta2.push_back(ivir);
+                                        new_beta2.push_back(jvir);
+                                        std::sort(new_beta2.begin(), new_beta2.end());
+                                        dbeta.push_back(b_encoder.str2address(new_beta2));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+
+        // Combine strings : a - 0, 0 - b, aa - 0, 0 - bb, a - b
+        auto [nas, nbs] = get_num_str();
+        for (auto id : salpha )
+            neigh_list.push_back(ib * nas + id);
+        for (auto id : dalpha )
+            neigh_list.push_back(ib * nas + id);
+        if (nb > 0) {
+            for (auto id : sbeta ) {
+                neigh_list.push_back(id * nas + ia);
+                for (auto id_ : salpha) 
+                    neigh_list.push_back(id * nas + id_);
+            }
+            for (auto id : dbeta )
+                neigh_list.push_back(id * nas + ia);
+        }
+	std::sort(neigh_list.begin(), neigh_list.end());
+	clist.push_back(neigh_list);
+    }
+}
+
+void DetBasis::build_basis_ref() {
+
+    if (me == 0) std::cout << "Generating connectivity list for the N-basis (reference implementation) " << std::endl;
     size_t bas_size = get_basis_size();
     for (size_t i = 0; i < bas_size; i++) {
 	std::vector<size_t> neigh_list {i};

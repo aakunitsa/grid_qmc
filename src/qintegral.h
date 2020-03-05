@@ -8,6 +8,10 @@
 #include "qorbitals.h"
 #include "qparams_reader.h"
 
+#ifdef USE_MPI
+#include <mpi.h>
+#endif
+
 class Integral_factory {
 
 	public:
@@ -46,6 +50,7 @@ class Integral_factory {
                 // This will only be used with fcidump for now...
                 std::vector<size_t> paux_bf_map; 
                 void gen_bf_map(bool sort);
+                int me; // to control printout when running with MPI
 };
 
 

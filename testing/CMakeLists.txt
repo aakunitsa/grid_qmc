@@ -71,7 +71,19 @@ if(USE_MPI)
     #    PUBLIC
     #    MPI::MPI_CXX
     #    )
+    add_executable(estimators_mpi_test.x 
+        estimators_mpi.cpp
+        ${CMAKE_SOURCE_DIR}/src/qhamiltonian_mpi.cpp
+        ${CMAKE_SOURCE_DIR}/src/qhamiltonian.cpp
+        ${CMAKE_SOURCE_DIR}/src/qbasis.cpp
+        )
+    target_link_libraries(estimators_mpi_test.x
+        PUBLIC
+        MPI::MPI_CXX
+        ref_methods 
+        )
 endif()
+
 
 enable_testing()
 
@@ -134,5 +146,13 @@ if(USE_MPI)
 #        NAME simple_fci_test_li2
 #        COMMAND mpirun -np 4 $<TARGET_FILE:simple_fci_test_li2.x> -i ${CMAKE_CURRENT_SOURCE_DIR}/simple_fci_test_li2.in > simple_fci_test_li2.log
 #    )
+endif()
+
+
+if(USE_MPI)
+    add_test(
+        NAME estimators_mpi_test
+        COMMAND mpirun -np 4 $<TARGET_FILE:estimators_mpi_test.x> -i ${CMAKE_CURRENT_SOURCE_DIR}/estimators1.in > estimators1.log
+    )
 endif()
         

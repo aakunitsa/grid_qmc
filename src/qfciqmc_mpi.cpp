@@ -445,9 +445,13 @@ void FCIQMC_mpi::run() {
             double e_num_global = 0.0, e_denom_global = 0.0;
             for (const auto &w : m_walker_ensemble) {
                 if (w.second == 0) continue;
-                auto [n_, d_] = en_proj.eval(w.first);
-                e_num += n_ * w.second;
-                e_denom += d_ * w.second;
+                if (mb_ints.find(w.first) == mb_ints.end()) {
+                    auto [n_, d_] = en_proj.eval(w.first);
+                    mb_ints[w.first] = std::make_tuple(n_, d_);
+                }
+                auto & [num, denom] = mb_ints[w.first];
+                e_num += num * w.second;
+                e_denom += denom * w.second;
             }
             MPI_Barrier(MPI_COMM_WORLD);
             MPI_Reduce(&e_num, &e_num_global, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);

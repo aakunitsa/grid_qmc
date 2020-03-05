@@ -71,6 +71,7 @@ target_sources(grid_qmc.x
     qintegral.cpp
     qgraph.cpp
     qbasis.cpp
+    qsampler.cpp
     ${optional_sources}
     ${optional_sources1}
   )

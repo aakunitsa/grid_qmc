@@ -14,6 +14,10 @@
 #define BETA 0
 #define ENCODER DET::ABStrings
 
+#ifdef USE_MPI
+#include <mpi.h>
+#endif
+
 // This is just a helper function used by DetBasis and Hamiltonian classes; It is quite natural to place it here for now
 
 inline std::tuple<int, std::vector<size_t>, std::vector<size_t> > gen_excitation(const std::vector<size_t> &i, const std::vector<size_t> &j) {
@@ -71,6 +75,8 @@ class Basis {
 	virtual std::tuple<size_t, size_t> unpack_str_index(size_t idx) = 0;
 	virtual std::vector<size_t> a(int i) = 0;
 	virtual std::vector<size_t> b(int i) = 0;
+	virtual int inv_a(std::vector<size_t> &det) = 0; // Need to be implemented below
+	virtual int inv_b(std::vector<size_t> &det) = 0;
 	virtual std::vector<size_t>& get_neigh(int i) = 0;
 	int ex_order(int i, int j, int type) {
             if ( type == ALPHA) {
@@ -83,12 +89,14 @@ class Basis {
                 return -1;
             }
 	}
+        int me;
 };
 
 class DetBasis : public Basis {
     private:
         std::vector< std::vector<size_t> > clist; // connectivity list stores the connected strings indeces
         void build_basis();
+        void build_basis_ref();
 
     public:
         DetBasis(std::map<std::string, int> &p, int n1porb) : Basis(p, n1porb) {
@@ -121,12 +129,13 @@ class DetBasis : public Basis {
             return std::make_tuple(ialpha, ibeta);
         }
 
-
 	// The following functions define the mapping from the set of indeces to
 	// the set of orbital strings
 
 	std::vector<size_t> a(int i) { return a_encoder.address2str(i); }
 	std::vector<size_t> b(int i) { return b_encoder.address2str(i); }
+        int inv_a(std::vector<size_t> &det) { return a_encoder.str2address(det); }
+        int inv_b(std::vector<size_t> &det) { return b_encoder.str2address(det); }
 	std::vector<size_t>& get_neigh(int i) {
             assert (i < get_basis_size());
             return clist[i];
@@ -158,6 +167,8 @@ class TruncatedBasis : public Basis {
         }
 	std::vector<size_t> a(int i) { return full_bas.a(i); }
 	std::vector<size_t> b(int i) { return full_bas.b(i); }
+	int inv_a(std::vector<size_t> &det) { return full_bas.inv_a(det); }
+	int inv_b(std::vector<size_t> &det) { return full_bas.inv_b(det); }
 	// This will be refactored later since the function will be used inside Hamiltonian and should
 	// therefore refer to the b.f. id-s inside the truncated basis
 	std::vector<size_t>& get_neigh(int i) {

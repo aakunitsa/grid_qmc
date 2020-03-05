@@ -139,9 +139,9 @@ void Hamiltonian::save_matrix() {
 
 std::vector<double> Hamiltonian::diag(bool save_wfn) {
 
-	// When building matrix it is helpful to assess if it is diagonally dominant
-	// so that one could see if the Davidson solver will perform well in this
-	// case
+    // When building matrix it is helpful to assess if it is diagonally dominant
+    // so that one could see if the Davidson solver will perform well in this
+    // case
 
     auto [ num_alpha_str, num_beta_str ]  = bas.get_num_str();
     assert ( num_alpha_str != 0 || num_beta_str != 0);

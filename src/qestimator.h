@@ -28,7 +28,12 @@ class Estimator {
 #endif
         bool verbose;
     public:
+        // For profiling purposes
+#ifdef USE_MPI
         Estimator(Integral_factory &ig_, Basis &bas_full_) : ig(ig_), bas_full(bas_full_), h_full(ig, bas_full), verbose(true) {} 
+#else 
+        Estimator(Integral_factory &ig_, Basis &bas_full_) : ig(ig_), bas_full(bas_full_), h_full(ig, bas_full), verbose(true) {} 
+#endif
         virtual std::tuple<double, double> eval (std::vector<double> &wf) = 0;
         virtual std::tuple<double, double> eval (size_t idet) = 0;
 };
@@ -52,7 +57,7 @@ class MixedBasisEstimator : public Estimator {
             bool test_eval2(); // Implements a simple test of the eval function for 2e
 
         public:
-            MixedBasisEstimator(Params_reader &q, Integral_factory &int_f, Basis &bas);
+            MixedBasisEstimator(Params_reader &q, Integral_factory &int_f, Basis &bas, bool precomp_h = false);
             ~MixedBasisEstimator();
             std::tuple<double, double> eval (std::vector<double> &wf);
             std::tuple<double, double> eval (size_t idet);

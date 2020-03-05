@@ -40,8 +40,9 @@ class FCIQMC_mpi {
         int local_it_count = 0; // local iteration count for debugging purposes
 	std::map<string, int> &par;
         std::unordered_map<int, int> m_walker_ensemble;
-        // Diagonal elements of H
-        std::unordered_map<int, double> h_diag; // Will be populated after equilibration run
+        // Will be populated after equilibration run
+        std::unordered_map<int, double> h_diag; // Diagonal elements of H
+        std::unordered_map< int, std::tuple<double, double> >mb_ints; // Mixed basis intermediates; first - <aux_ref | H | i>; second - <aux_ref | i>
         //std::map<int, int> m_walker_ensemble;
         std::vector< std::vector<Walker> > local_spawned; // Stores the determinants asigned to all ranks
         std::vector<Walker> global_spawned; // Needed to store the walkers collected from all ranks and assigned to "me"

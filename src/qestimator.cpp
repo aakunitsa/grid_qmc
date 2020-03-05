@@ -6,11 +6,13 @@
 #include <cstdio>
 
 
-MixedBasisEstimator::MixedBasisEstimator(Params_reader &q, Integral_factory &int_f, Basis &bas) : ss(q.params["estimator_L_max"]), g(q.params), Estimator(int_f, bas) {
+MixedBasisEstimator::MixedBasisEstimator(Params_reader &q, Integral_factory &int_f, Basis &bas, bool precomp_h) : ss(q.params["estimator_L_max"]), g(q.params), Estimator(int_f, bas) {
 #ifdef USE_MPI
     int me;
     MPI_Comm_rank(MPI_COMM_WORLD, &me);
     if(me != 0) verbose = false;
+    if(precomp_h) h_full.precompute_hamiltonian(); // In this way I can control the Hamiltonian construction from outside the estimator class
+    // The precomp_h key will be ignored for non-MPI builds for now
 #endif
     // Allocate auxiliary basis
     aux_int = new Aux_integrals(q, ss);
