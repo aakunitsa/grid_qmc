@@ -49,6 +49,20 @@ add_executable(estimators_test.x
     )
 target_link_libraries(estimators_test.x ref_methods)
 
+add_executable(uniform_sampler_test.x 
+    uniform_sampler.cpp 
+    ${CMAKE_SOURCE_DIR}/src/qsampler.cpp
+#    ${CMAKE_SOURCE_DIR}/src/qbasis.cpp
+    )
+#target_include_directories(uniform_sampler_test.x 
+#    PRIVATE
+#    ${CMAKE_SOURCE_DIR}/src
+#    ${ARMADILLO_INCLUDE_DIRS}
+#    ${GSL_INCLUDE_DIRS}
+#    )
+add_definitions(-DMT64)
+target_link_libraries(uniform_sampler_test.x ref_methods)
+
 # If we USE_MPI then => add some tests for MPI
 
 if(USE_MPI)

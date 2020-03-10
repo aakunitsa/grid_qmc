@@ -9,6 +9,7 @@
 #include <tuple>
 #include "qgraph.h"
 #include <gsl/gsl_math.h>
+#include <iostream>
 
 #define ALPHA 1
 #define BETA 0
@@ -25,7 +26,8 @@ inline std::tuple<int, std::vector<size_t>, std::vector<size_t> > gen_excitation
     // The first string is the starting one; the excitations will be generated from it
     assert (i.size() == j.size());
     int perm = 0; // Number of permutations required to align the orbital strings
-    std::vector<size_t> ex, from, to; 
+    std::vector<size_t> from, to; 
+    assert(from.size() == 0 && to.size() == 0);
     size_t n = i.size();
 
     if (i.size() == 0) {
@@ -52,6 +54,26 @@ inline std::tuple<int, std::vector<size_t>, std::vector<size_t> > gen_excitation
     }
 
     int parity = gsl_pow_int(-1, perm);
+    if (from.size() != to.size()) {
+        std::cout << "Error in gen_excitation!" << std::endl;
+        std::cout << "i:" << std::endl;
+        for (const auto &e: i) 
+            std::cout << e << '\t';
+        std::cout << std::endl;
+        std::cout << "j:" << std::endl;
+        for (const auto &e: j) 
+            std::cout << e << '\t';
+        std::cout << std::endl;
+        std::cout << "f:" << std::endl;
+        for (const auto &e: from) 
+            std::cout << e << '\t';
+        std::cout << std::endl;
+        std::cout << "t:" << std::endl;
+        for (const auto &e: to) 
+            std::cout << e << '\t';
+        std::cout << std::endl;
+    }
+
     assert (from.size() == to.size());
     return std::make_tuple(parity, from, to);
 }
@@ -100,7 +122,7 @@ class DetBasis : public Basis {
 
     public:
         DetBasis(std::map<std::string, int> &p, int n1porb) : Basis(p, n1porb) {
-            build_basis();
+            build_basis_ref();
         }
 	std::tuple<size_t, size_t> get_num_str() { return std::make_tuple(a_encoder.nstrings, b_encoder.nstrings); }
         size_t get_basis_size() { 
