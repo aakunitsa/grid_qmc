@@ -6,6 +6,7 @@
 #include <random>
 #include <tuple>
 #include <iostream>
+#include <cassert>
 
 #ifdef MT64
 typedef std::mt19937_64 random_engine; // Should be defined at compile time; will use this for now
@@ -30,6 +31,29 @@ class Sampler {
     protected:
         Basis &bas;
         random_engine &g;
+};
+
+class Simple_sampler : public Sampler {
+    // This sampler produces a random determinant id sampled 
+    // uniformly regardless the exciation order with respect to the oriiginal determinant
+    public:
+        Simple_sampler(Basis &b, random_engine &g) : Sampler(b, g) {
+            basis_size = bas.get_basis_size();
+            assert (basis_size > 1);
+            disp_walker = std::uniform_int_distribution<size_t> (1, basis_size - 1);
+        }
+        std::tuple<double, std::vector<size_t> > excitation(size_t det_id, size_t n_samples) {
+            std::vector<size_t> samples;
+            for (size_t isample = 0; isample < n_samples; isample++) {
+                size_t new_det_id = (det_id + disp_walker(g)) % basis_size;
+                samples.push_back(new_det_id);
+            }
+            return std::make_tuple(1. / ((double)bas.get_basis_size() - 1.), samples);
+        }
+
+    private:
+        std::uniform_int_distribution<size_t> disp_walker;
+        size_t basis_size;
 };
 
 class Uniform_with_lists : public Sampler { 

@@ -64,12 +64,11 @@ void DetBasis::build_basis() {
         std::vector<size_t> salpha, sbeta, dalpha, dbeta;
         auto ref_alpha = a_encoder.address2str(ia);
         for (size_t iocc = 0; iocc < na; iocc++) {
-            std::unordered_set<size_t> occ_i(ref_alpha.begin(), ref_alpha.end());
-            occ_i.erase(ref_alpha[iocc]);
+            std::unordered_set<size_t> occ(ref_alpha.begin(), ref_alpha.end());
             std::vector<size_t> new_alpha_base1(ref_alpha.begin(), ref_alpha.end());
             new_alpha_base1.erase(std::next(new_alpha_base1.begin(), iocc));
             for (size_t ivir = 0; ivir < n1porb; ivir++) {
-                if (ivir == ref_alpha[iocc] || occ_i.find(ivir) != occ_i.end()) 
+                if (occ.find(ivir) != occ.end()) 
                     continue;
                 else {
                     std::vector<size_t> new_alpha1(new_alpha_base1.begin(), new_alpha_base1.end());
@@ -78,14 +77,12 @@ void DetBasis::build_basis() {
                     salpha.push_back(a_encoder.str2address(new_alpha1));
                     // If a double excited determinant can be formed => find the second OV pair
                     if (new_alpha_base1.size() != 0) {
-                        for (size_t jocc = iocc + 1; jocc < n1porb; jocc++) {
-                            std::unordered_set<size_t> occ_ij(occ_i); // Hopefully, this is a deep copy
-                            occ_ij.erase(ref_alpha[jocc]);
+                        for (size_t jocc = iocc + 1; jocc < na; jocc++) {
                             std::vector<size_t> new_alpha_base2(ref_alpha.begin(), ref_alpha.end());
                             new_alpha_base2.erase(std::next(new_alpha_base2.begin(), iocc));
                             new_alpha_base2.erase(std::next(new_alpha_base2.begin(), jocc - 1));
                             for (size_t jvir = ivir + 1; jvir < n1porb; jvir++) {
-                                if (jvir == ref_alpha[jocc] || occ_ij.find(jvir) != occ_ij.end()) 
+                                if (occ.find(jvir) != occ.end()) 
                                     continue;
                                 else {
                                     std::vector<size_t> new_alpha2(new_alpha_base2.begin(), new_alpha_base2.end());
@@ -105,12 +102,11 @@ void DetBasis::build_basis() {
         if (nb > 0) {
             auto ref_beta = b_encoder.address2str(ib);
             for (size_t iocc = 0; iocc < nb; iocc++) {
-                std::unordered_set<size_t> occ_i(ref_beta.begin(), ref_beta.end());
-                occ_i.erase(ref_beta[iocc]);
+                std::unordered_set<size_t> occ(ref_beta.begin(), ref_beta.end());
                 std::vector<size_t> new_beta_base1(ref_beta.begin(), ref_beta.end());
                 new_beta_base1.erase(std::next(new_beta_base1.begin(), iocc));
                 for (size_t ivir = 0; ivir < n1porb; ivir++) {
-                    if (ivir == ref_beta[iocc] || occ_i.find(ivir) != occ_i.end()) 
+                    if (occ.find(ivir) != occ.end()) 
                         continue;
                     else {
                         std::vector<size_t> new_beta1(new_beta_base1.begin(), new_beta_base1.end());
@@ -119,14 +115,12 @@ void DetBasis::build_basis() {
                         sbeta.push_back(b_encoder.str2address(new_beta1));
                         // If a double excited determinant can be formed => find the second OV pair
                         if (new_beta_base1.size() != 0) {
-                            for (size_t jocc = iocc + 1; jocc < n1porb; jocc++) {
-                                std::unordered_set<size_t> occ_ij(occ_i); // Hopefully, this is a deep copy
-                                occ_ij.erase(ref_beta[jocc]);
+                            for (size_t jocc = iocc + 1; jocc < nb; jocc++) {
                                 std::vector<size_t> new_beta_base2(ref_beta.begin(), ref_beta.end());
                                 new_beta_base2.erase(std::next(new_beta_base2.begin(), iocc));
                                 new_beta_base2.erase(std::next(new_beta_base2.begin(), jocc - 1));
                                 for (size_t jvir = ivir + 1; jvir < n1porb; jvir++) {
-                                    if (jvir == ref_beta[jocc] || occ_ij.find(jvir) != occ_ij.end()) 
+                                    if (occ.find(jvir) != occ.end()) 
                                         continue;
                                     else {
                                         std::vector<size_t> new_beta2(new_beta_base2.begin(), new_beta_base2.end());

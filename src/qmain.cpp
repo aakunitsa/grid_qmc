@@ -19,6 +19,7 @@
 #include <chrono>
 #include <numeric>
 #include <cassert>
+#include "qtimer.h"
 
 #include "qestimator.h"
 //#include "qconfig.h"
@@ -47,6 +48,7 @@ int main(int argc, char **argv) {
     }
     Params_reader q(argc, argv);
     q.perform();
+    Timer qclock;
 
     /*
     if (q.params["mult"] == 1) {
@@ -108,7 +110,10 @@ int main(int argc, char **argv) {
     double t_max;
 #endif
     // Set up the integral factory
-    if (me == 0) printf("***Integrals****\n");
+    if (me == 0) {
+        printf("***Integrals****\n");
+        qclock.reset();
+    }
     if(q.params["int_type"] == grid) {
         g_int = new Grid_integrals(q.params, ss);
     } else if(q.params["int_type"] == aux) {
@@ -116,18 +121,25 @@ int main(int argc, char **argv) {
     } else if(q.params["int_type"] == saved) {
         g_int = new Saved_integrals(q);
     }
+    if (me == 0) printf("Step took %20.2f s\n", qclock.elapsed());
     // If we intend to create an integral dump => basis and estimator are not needed so
     // it makes sense to handle this task separately
 
     if (q.params["run_type"] == integrals) {
         if (me == 0) {
+            qclock.reset();
             printf("***Savings integrals***\n");
             g_int->fcidump();
+            printf("Step took %20.2f s\n", qclock.elapsed());
         }
     } else {
         // Create basis
-        if (me == 0) printf("***N-electron Basis***\n");
+        if (me == 0) {
+            printf("***N-electron Basis***\n");
+            qclock.reset();
+        }
         basis = new DetBasis(q.params, g_int->n1porb);
+        if (me == 0) printf("Step took %20.2f s\n", qclock.elapsed());
         with_basis = true;
         // For CI calculations we don't use estimators
         if (q.params["run_type"] == ci) {
@@ -135,6 +147,7 @@ int main(int argc, char **argv) {
             double e_min, e_max;
             if (me == 0) {
                 printf("***Performing Hamiltonian diagonalization***\n");
+                qclock.reset();
             }
             if (me == 0) printf("(MAIN) Constructing the Hamiltonian\n");
 #ifndef USE_MPI
@@ -194,7 +207,7 @@ int main(int argc, char **argv) {
                 std::cout << " Minimum eigenvalue is " << e_min << std::endl;
                 std::cout << " Maximum eigenvalue is " << e_max << std::endl;
             }
-
+            if (me == 0) printf("Step took %20.2f s\n", qclock.elapsed());
         } else if (q.params["run_type"] == save_h) {
 #ifndef USE_MPI
             Hamiltonian h(*g_int, *basis);
@@ -212,12 +225,13 @@ int main(int argc, char **argv) {
             // This requires both Hamiltonian and energy estimator
             if (me == 0) {
                 printf("***FCIQMC simulation***\n");
+                qclock.reset();
             }
 #ifndef USE_MPI
             Hamiltonian h(*g_int, *basis);
 #else
             Hamiltonian_mpi h(*g_int, *basis);
-            // This temporary
+            // This is temporary
             //h.precompute_hamiltonian(); // only works for mpi version for now
 #endif
             if (me == 0) printf("***Energy estimator***\n");
@@ -235,6 +249,7 @@ int main(int argc, char **argv) {
             FCIQMC_mpi s(q.params, q.dparams, h, *basis, *proj_en);
             s.run();
 #endif
+            if (me == 0) printf("Step took %20.2f s\n", qclock.elapsed());
         }
     }
 

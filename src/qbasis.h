@@ -97,7 +97,7 @@ class Basis {
 	virtual std::tuple<size_t, size_t> unpack_str_index(size_t idx) = 0;
 	virtual std::vector<size_t> a(int i) = 0;
 	virtual std::vector<size_t> b(int i) = 0;
-	virtual int inv_a(std::vector<size_t> &det) = 0; // Need to be implemented below
+	virtual int inv_a(std::vector<size_t> &det) = 0; 
 	virtual int inv_b(std::vector<size_t> &det) = 0;
 	virtual std::vector<size_t>& get_neigh(int i) = 0;
 	int ex_order(int i, int j, int type) {
@@ -122,7 +122,8 @@ class DetBasis : public Basis {
 
     public:
         DetBasis(std::map<std::string, int> &p, int n1porb) : Basis(p, n1porb) {
-            build_basis_ref();
+            //build_basis_ref();
+            build_basis();
         }
 	std::tuple<size_t, size_t> get_num_str() { return std::make_tuple(a_encoder.nstrings, b_encoder.nstrings); }
         size_t get_basis_size() { 

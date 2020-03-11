@@ -17,14 +17,13 @@
 extern "C" void read_orbitals_(double *coeff);
 
 
-Integral_factory::Integral_factory(std::map<string, int> &p) : g(p), lp(p) {};
-
-bool Integral_factory::check_orthogonality(double orth_thresh = 1e-6) {
+Integral_factory::Integral_factory(std::map<string, int> &p) : g(p), lp(p), me(0) {
 #ifdef USE_MPI
     MPI_Comm_rank(MPI_COMM_WORLD, &me);
-#else
-    me = 0;
 #endif
+};
+
+bool Integral_factory::check_orthogonality(double orth_thresh = 1e-6) {
     bool ortho = true;
     double max_dev = std::numeric_limits<double>::min();
 
