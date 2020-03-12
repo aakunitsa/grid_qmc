@@ -99,7 +99,7 @@ class Basis {
 	virtual std::vector<size_t> b(int i) = 0;
 	virtual int inv_a(std::vector<size_t> &det) = 0; 
 	virtual int inv_b(std::vector<size_t> &det) = 0;
-	virtual std::vector<size_t>& get_neigh(int i) = 0;
+	virtual std::vector<size_t> get_neigh(int i) = 0;
 	int ex_order(int i, int j, int type) {
             if ( type == ALPHA) {
                 auto [sign, from, to] = gen_excitation(a(i), a(j)); // This is inefficient; will be corrected later using move semantics
@@ -116,14 +116,22 @@ class Basis {
 
 class DetBasis : public Basis {
     private:
+        // -------------------------------------
         std::vector< std::vector<size_t> > clist; // connectivity list stores the connected strings indeces
+        // -------------------------------------
         void build_basis();
         void build_basis_ref();
-
+        bool saved_clist;
+        std::tuple<std::vector<size_t>, std::vector<size_t>> sd_excitations(size_t str_id, int type);
+	std::vector<size_t> get_neigh_internal(int i);
+	
     public:
         DetBasis(std::map<std::string, int> &p, int n1porb) : Basis(p, n1porb) {
+            // Note : precomputed connectivity lists take too much memory when
+            // allocated on a per rank basis; 
             //build_basis_ref();
-            build_basis();
+            //build_basis();
+            saved_clist = false;
         }
 	std::tuple<size_t, size_t> get_num_str() { return std::make_tuple(a_encoder.nstrings, b_encoder.nstrings); }
         size_t get_basis_size() { 
@@ -139,7 +147,6 @@ class DetBasis : public Basis {
 	// create two tables to save some space... 
 		
 	std::tuple<size_t, size_t> unpack_str_index(size_t idx) {  
-
 	// Structure of the string list is as follows:
 	// beta_1 alpha_1 ; beta_1 alpha_2 ; ..... beta_1; alpha_n
 	// and so on
@@ -159,9 +166,14 @@ class DetBasis : public Basis {
 	std::vector<size_t> b(int i) { return b_encoder.address2str(i); }
         int inv_a(std::vector<size_t> &det) { return a_encoder.str2address(det); }
         int inv_b(std::vector<size_t> &det) { return b_encoder.str2address(det); }
-	std::vector<size_t>& get_neigh(int i) {
-            assert (i < get_basis_size());
-            return clist[i];
+	std::vector<size_t> get_neigh(int i) {
+            if (saved_clist) {
+                assert (i < get_basis_size());
+                return clist[i];
+            } else {
+                // Calculate:
+                return get_neigh_internal(i);
+            }
 	}
 };
 
@@ -194,7 +206,7 @@ class TruncatedBasis : public Basis {
 	int inv_b(std::vector<size_t> &det) { return full_bas.inv_b(det); }
 	// This will be refactored later since the function will be used inside Hamiltonian and should
 	// therefore refer to the b.f. id-s inside the truncated basis
-	std::vector<size_t>& get_neigh(int i) {
+	std::vector<size_t> get_neigh(int i) {
             assert (i < get_basis_size());
             return full_bas.get_neigh(smap[i]); // THIS SHOULD BE REDESIGNED
 	}

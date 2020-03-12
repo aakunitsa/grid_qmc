@@ -49,113 +49,81 @@ Basis::Basis(std::map<std::string, int> &p, int n1porb_) : n1porb(n1porb_), nel(
         b_encoder = ENCODER(nbeta, n1porb, false);
 }
 
-void DetBasis::build_basis() {
-    // This function uses the simplest least efficient algorithm that I could think of
-    // but this still should be much better than the reference implementation below (but the logic is
-    // cumbersome)
+std::tuple<std::vector<size_t>, std::vector<size_t>> DetBasis::sd_excitations(size_t str_id, int type) {
+    ENCODER& str_encoder = (type == ALPHA ? a_encoder : b_encoder);
+    const auto &ref_str = str_encoder.address2str(str_id);
+    size_t n1porb = (size_t)get_n1porb();
+    std::vector<size_t> singles, doubles;
+    for (size_t iocc = 0; iocc < ref_str.size(); iocc++) {
+        std::unordered_set<size_t> occ(ref_str.begin(), ref_str.end());
+        std::vector<size_t> new_str_base1(ref_str.begin(), ref_str.end());
+        new_str_base1.erase(std::next(new_str_base1.begin(), iocc));
+        for (size_t ivir = 0; ivir < n1porb; ivir++) {
+            if (occ.find(ivir) != occ.end()) 
+                continue;
+            else {
+                std::vector<size_t> new_str1(new_str_base1.begin(), new_str_base1.end());
+                new_str1.push_back(ivir);
+                std::sort(new_str1.begin(), new_str1.end());
+                singles.push_back(str_encoder.str2address(new_str1));
+                // If a double excited determinant can be formed => find the second OV pair
+                if (new_str_base1.size() != 0) {
+                    for (size_t jocc = iocc + 1; jocc < ref_str.size(); jocc++) {
+                        std::vector<size_t> new_str_base2(ref_str.begin(), ref_str.end());
+                        new_str_base2.erase(std::next(new_str_base2.begin(), iocc));
+                        new_str_base2.erase(std::next(new_str_base2.begin(), jocc - 1));
+                        for (size_t jvir = ivir + 1; jvir < n1porb; jvir++) {
+                            if (occ.find(jvir) != occ.end()) 
+                                continue;
+                            else {
+                                std::vector<size_t> new_str2(new_str_base2.begin(), new_str_base2.end());
+                                new_str2.push_back(ivir);
+                                new_str2.push_back(jvir);
+                                std::sort(new_str2.begin(), new_str2.end());
+                                doubles.push_back(str_encoder.str2address(new_str2));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return std::make_tuple(singles, doubles);
+}
 
+std::vector<size_t> DetBasis::get_neigh_internal(int i) {
+    std::vector<size_t> neigh_list {i};
+    auto [ia, ib] = unpack_str_index(i);
+    auto [na, nb] = get_ab();
+    std::vector<size_t> salpha, sbeta, dalpha, dbeta;
+    std::tie(salpha, dalpha) = sd_excitations(ia, ALPHA);
+    // Same but for beta strings if we happen to have any
+    if (nb > 0) {
+        std::tie(sbeta, dbeta) = sd_excitations(ib, BETA);
+    }
+    // Combine strings : a - 0, 0 - b, aa - 0, 0 - bb, a - b
+    auto [nas, nbs] = get_num_str();
+    for (auto id : salpha )
+        neigh_list.push_back(ib * nas + id);
+    for (auto id : dalpha )
+        neigh_list.push_back(ib * nas + id);
+    if (nb > 0) {
+        for (auto id : sbeta ) {
+            neigh_list.push_back(id * nas + ia);
+            for (auto id_ : salpha) 
+                neigh_list.push_back(id * nas + id_);
+        }
+        for (auto id : dbeta )
+            neigh_list.push_back(id * nas + ia);
+    }
+    std::sort(neigh_list.begin(), neigh_list.end());
+    return neigh_list;
+}
+
+void DetBasis::build_basis() {
     if (me == 0) std::cout << "Generating connectivity list for the N-electron basis " << std::endl;
     size_t bas_size = get_basis_size();
-    size_t n1porb = (size_t)get_n1porb();
-    auto [na, nb] = get_ab();
-    for (size_t i = 0; i < bas_size; i++) {
-	std::vector<size_t> neigh_list {i};
-	auto [ia, ib] = unpack_str_index(i);
-        std::vector<size_t> salpha, sbeta, dalpha, dbeta;
-        auto ref_alpha = a_encoder.address2str(ia);
-        for (size_t iocc = 0; iocc < na; iocc++) {
-            std::unordered_set<size_t> occ(ref_alpha.begin(), ref_alpha.end());
-            std::vector<size_t> new_alpha_base1(ref_alpha.begin(), ref_alpha.end());
-            new_alpha_base1.erase(std::next(new_alpha_base1.begin(), iocc));
-            for (size_t ivir = 0; ivir < n1porb; ivir++) {
-                if (occ.find(ivir) != occ.end()) 
-                    continue;
-                else {
-                    std::vector<size_t> new_alpha1(new_alpha_base1.begin(), new_alpha_base1.end());
-                    new_alpha1.push_back(ivir);
-                    std::sort(new_alpha1.begin(), new_alpha1.end());
-                    salpha.push_back(a_encoder.str2address(new_alpha1));
-                    // If a double excited determinant can be formed => find the second OV pair
-                    if (new_alpha_base1.size() != 0) {
-                        for (size_t jocc = iocc + 1; jocc < na; jocc++) {
-                            std::vector<size_t> new_alpha_base2(ref_alpha.begin(), ref_alpha.end());
-                            new_alpha_base2.erase(std::next(new_alpha_base2.begin(), iocc));
-                            new_alpha_base2.erase(std::next(new_alpha_base2.begin(), jocc - 1));
-                            for (size_t jvir = ivir + 1; jvir < n1porb; jvir++) {
-                                if (occ.find(jvir) != occ.end()) 
-                                    continue;
-                                else {
-                                    std::vector<size_t> new_alpha2(new_alpha_base2.begin(), new_alpha_base2.end());
-                                    new_alpha2.push_back(ivir);
-                                    new_alpha2.push_back(jvir);
-                                    std::sort(new_alpha2.begin(), new_alpha2.end());
-                                    dalpha.push_back(a_encoder.str2address(new_alpha2));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Same but for beta strings if we happen to have any
-        if (nb > 0) {
-            auto ref_beta = b_encoder.address2str(ib);
-            for (size_t iocc = 0; iocc < nb; iocc++) {
-                std::unordered_set<size_t> occ(ref_beta.begin(), ref_beta.end());
-                std::vector<size_t> new_beta_base1(ref_beta.begin(), ref_beta.end());
-                new_beta_base1.erase(std::next(new_beta_base1.begin(), iocc));
-                for (size_t ivir = 0; ivir < n1porb; ivir++) {
-                    if (occ.find(ivir) != occ.end()) 
-                        continue;
-                    else {
-                        std::vector<size_t> new_beta1(new_beta_base1.begin(), new_beta_base1.end());
-                        new_beta1.push_back(ivir);
-                        std::sort(new_beta1.begin(), new_beta1.end());
-                        sbeta.push_back(b_encoder.str2address(new_beta1));
-                        // If a double excited determinant can be formed => find the second OV pair
-                        if (new_beta_base1.size() != 0) {
-                            for (size_t jocc = iocc + 1; jocc < nb; jocc++) {
-                                std::vector<size_t> new_beta_base2(ref_beta.begin(), ref_beta.end());
-                                new_beta_base2.erase(std::next(new_beta_base2.begin(), iocc));
-                                new_beta_base2.erase(std::next(new_beta_base2.begin(), jocc - 1));
-                                for (size_t jvir = ivir + 1; jvir < n1porb; jvir++) {
-                                    if (occ.find(jvir) != occ.end()) 
-                                        continue;
-                                    else {
-                                        std::vector<size_t> new_beta2(new_beta_base2.begin(), new_beta_base2.end());
-                                        new_beta2.push_back(ivir);
-                                        new_beta2.push_back(jvir);
-                                        std::sort(new_beta2.begin(), new_beta2.end());
-                                        dbeta.push_back(b_encoder.str2address(new_beta2));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-
-        // Combine strings : a - 0, 0 - b, aa - 0, 0 - bb, a - b
-        auto [nas, nbs] = get_num_str();
-        for (auto id : salpha )
-            neigh_list.push_back(ib * nas + id);
-        for (auto id : dalpha )
-            neigh_list.push_back(ib * nas + id);
-        if (nb > 0) {
-            for (auto id : sbeta ) {
-                neigh_list.push_back(id * nas + ia);
-                for (auto id_ : salpha) 
-                    neigh_list.push_back(id * nas + id_);
-            }
-            for (auto id : dbeta )
-                neigh_list.push_back(id * nas + ia);
-        }
-	std::sort(neigh_list.begin(), neigh_list.end());
-	clist.push_back(neigh_list);
-    }
+    for (size_t i = 0; i < bas_size; i++) clist.push_back(get_neigh_internal(i));
 }
 
 void DetBasis::build_basis_ref() {
@@ -187,9 +155,7 @@ void DetBasis::build_basis_ref() {
 			std::cout << j << " ";
 		std::cout << std::endl;
 	}
-
 #endif
-	
 }
 
 //TruncatedBasis::TruncatedBasis(std::map<string, int> &p, int n1porb, int subspace_size_, std::vector<double> &h_diag, DetBasis &d) : 

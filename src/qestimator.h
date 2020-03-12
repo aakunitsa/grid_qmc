@@ -28,12 +28,7 @@ class Estimator {
 #endif
         bool verbose;
     public:
-        // For profiling purposes
-#ifdef USE_MPI
-        Estimator(Integral_factory &ig_, Basis &bas_full_) : ig(ig_), bas_full(bas_full_), h_full(ig, bas_full), verbose(true) {} 
-#else 
-        Estimator(Integral_factory &ig_, Basis &bas_full_) : ig(ig_), bas_full(bas_full_), h_full(ig, bas_full), verbose(true) {} 
-#endif
+        Estimator(Integral_factory &ig_, Basis &bas_full_) : ig(ig_), bas_full(bas_full_), h_full(ig, bas_full), verbose(false) {} 
         virtual std::tuple<double, double> eval (std::vector<double> &wf) = 0;
         virtual std::tuple<double, double> eval (size_t idet) = 0;
 };
@@ -89,33 +84,29 @@ class ProjEstimator : public Estimator {
                     {
                         auto e = h_proj.diag(true); // Saving the ground state
 			trial_e = e[0];
-			auto v = h_proj.get_wfn();
-			std::copy(v.begin(), v.end(), trial_state.begin());
+			trial_state = h_proj.get_wfn();
                     }
                     if (verbose) printf("(ProjEstimator) Energy of the trial function is %13.6f\n", trial_e);
                     if (verbose) printf("(ProjEstimator) Basis size inside ProjEstimator is %zu\n", tr_basis->get_basis_size());
 		}
 		std::tuple<double, double>  eval(std::vector<double> &wf) {
                     // Full w.f. version
+                    // Using connectivity list here can potentially reduce the 
+                    // computational cost whereas it is unwarranted in the case
+                    // of a single determinant version (which is most commongly used
+                    // throughout the code)
                     double num = 0.0, denom = 0.0;
                     auto n_bf = tr_basis->get_basis_size();
                     //auto n_bf = tr_basis.get_full_basis().get_basis_size();
                     for (size_t i = 0; i < n_bf; i++) {
-			auto &connected = tr_basis->get_neigh(i);
+			const auto &connected = tr_basis->get_neigh(i);
 			//auto &connected = tr_basis.get_full_basis().get_neigh(i);
 			auto id = tr_basis->get_id(i);
-			//auto id = i;
 			denom += trial_state[i] * wf[id];
 			for (const auto &j : connected) {
                             num += trial_state[i] * h_full.matrix(id, j) * wf[j];
 			}
-			/*
-			for (size_t j = 0; j < n_bf; j++) {
-                            num += trial_state[i] * h_full.matrix(i, j) * wf[j];
-			}
-				*/
                     }
-
                     return std::make_tuple(num, denom);
 		}
 		std::tuple<double, double> eval(size_t idet) { 
@@ -124,14 +115,11 @@ class ProjEstimator : public Estimator {
                     // with respect to the full basis
                     double num = 0.0, denom = 0.0;
                     auto n_bf = tr_basis->get_basis_size();
+                    // loop over small basis
                     for (size_t i = 0; i < n_bf; i++) {
-			// loop over small basis
-			auto &connected = tr_basis->get_neigh(i);
 			auto id = tr_basis->get_id(i);
 			if (id == idet) denom += trial_state[i];
-			if (std::binary_search(connected.begin(), connected.end(), idet)) {
-				num += trial_state[i] * h_full.matrix(id, idet);
-			}
+			num += trial_state[i] * h_full.matrix(id, idet);
                     }
                     return std::make_tuple(num, denom);
 		}

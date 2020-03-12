@@ -343,9 +343,9 @@ std::tuple<double, double> MixedBasisEstimator::eval (size_t idet) {
     // with respect to the full basis
     double num = 0.0, denom = 0.0;
     auto aux_bas_size = aux_bas_tr->get_basis_size();
-    auto &connected = bas_full.get_neigh(idet);
+    const auto &connected = bas_full.get_neigh(idet);
     denom = cblas_ddot(aux_bas_size, overlap.data() + idet * aux_bas_size, 1, trial_state.data(), 1); 
-    for (auto &j : connected) {
+    for (const auto &j : connected) {
         double mat_el = h_full.matrix(j, idet);
         auto v = overlap.data() + j * aux_bas_size;
         num += mat_el * cblas_ddot(aux_bas_size, v, 1, trial_state.data(), 1);
